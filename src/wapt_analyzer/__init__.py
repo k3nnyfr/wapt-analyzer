@@ -1,3 +1,3 @@
 """wapt-analyzer: suggest WAPT packages missing from a server repository."""
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

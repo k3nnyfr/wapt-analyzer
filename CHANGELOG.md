@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.2.0] - 2026-10-09
 
 ### Added
 - `import --update` : met à jour les paquets du dépôt pour lesquels le store propose une version plus récente (même OS, même architecture, version complète), avec `update_exclude` pour protéger les paquets maison.
