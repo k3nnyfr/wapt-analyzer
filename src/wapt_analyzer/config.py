@@ -100,6 +100,8 @@ DEFAULTS: dict = {
         "verify": "full",             # full (files + control), control (metadata only) or none (no check)
         "dependencies": True,
         "exclude": ["waptupgrade", "waptsetup", "waptagent", "waptserver"],
+        # Packages (name without prefix) never replaced by `import --update`, e.g. your own builds
+        "update_exclude": [],
         "work_dir": "",               # default: <cache>/import
     },
     "report": {

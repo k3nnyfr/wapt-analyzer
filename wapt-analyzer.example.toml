@@ -65,6 +65,8 @@ ignore_system_components = true
 verify = "full"                             # full (files + metadata), control (metadata only), none
 dependencies = true
 exclude = ["waptupgrade", "waptsetup", "waptagent", "waptserver"]
+# Packages (name without prefix) never replaced by `import --update`, e.g. your own builds
+# update_exclude = ["vcredist"]
 # work_dir = "~/.cache/wapt-analyzer/import"
 
 [report]

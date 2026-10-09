@@ -17,6 +17,17 @@
 - [x] Prise en compte des dépendances (`depends`) des paquets importés
 - [x] Clé déverrouillée une seule fois par import
 
-## Plus tard
+## v0.3 — Confort au quotidien
+- [x] `import --update` : mise à jour des paquets en retard sur le store
+- [ ] Cases à cocher dans le rapport HTML pour générer la commande d'import
+- [ ] Liste d'exclusions OEM optionnelle (HP, Canon, Epson, Intel…)
+- [ ] Rapprochement d'Office tenant compte de l'année
+
+## v0.4 — Authentification
 - [ ] Authentification MFA (TOTP)
 - [ ] Authentification par certificat client
+
+## Plus tard
+- [ ] Mode planifié (cron) avec envoi du rapport (mail ou webhook)
+- [ ] Sélection interactive des paquets dans le terminal
+- [ ] Publication sur PyPI (`uvx wapt-analyzer`)

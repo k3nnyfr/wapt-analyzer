@@ -88,7 +88,8 @@ def to_dict(result: AnalysisResult, context: dict, lang: str = "fr", restricted_
         "software_unmanaged": [_software(s, lang, r) for s in result.software_unmanaged],
         "software_unmatched": [_software(s, lang, r) for s in result.software_unmatched],
         "outdated": [
-            {"os": o.family, "local": _package(o.local, lang, r), "store": _package(o.store, lang, r)}
+            {"os": o.family, "kind": o.kind, "local": _package(o.local, lang, r),
+             "store": _package(o.store, lang, r)}
             for o in result.outdated
         ],
     }
@@ -142,8 +143,9 @@ def write_csv(data: dict, directory: Path) -> list[Path]:
                (s["match"] or {}).get("package", ""), (s["match"] or {}).get("version", ""),
                s["match_source"], s["score"]]
               for s in data[section]])
-    dump("outdated.csv", ["os", "local_package", "local_version", "store_package", "store_version"],
-         [[o["os"], o["local"]["package"], o["local"]["version"], o["store"]["package"], o["store"]["version"]]
+    dump("outdated.csv", ["os", "kind", "local_package", "local_version", "store_package", "store_version"],
+         [[o["os"], o["kind"], o["local"]["package"], o["local"]["version"],
+           o["store"]["package"], o["store"]["version"]]
           for o in data["outdated"]])
     return written
 

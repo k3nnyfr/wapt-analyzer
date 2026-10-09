@@ -12,7 +12,7 @@ from pathlib import Path
 import requests
 
 from . import __version__
-from .analysis import analyze
+from .analysis import analyze, find_updates
 from .config import load_config, resolve_key_password, resolve_password
 from .fetch import USER_AGENT, Cache, fetch_cached
 from .importer import (
@@ -93,7 +93,10 @@ def build_parser() -> argparse.ArgumentParser:
                     "signature, rename to your prefix, sign with your key (unlocked once) and upload.",
     )
     src = imp.add_argument_group("packages to import")
-    src.add_argument("packages", nargs="*", help="Store package names (tis-firefox or firefox)")
+    src.add_argument("packages", nargs="*",
+                     help="Store package names (tis-firefox or firefox); with --update: restrict to these")
+    src.add_argument("--update", action="store_true",
+                     help="Update the repository packages for which the store has a newer version")
     src.add_argument("--from-report", metavar="JSON", help="Import the candidates of a JSON report")
     src.add_argument("--only", type=_csv_list, help="With --from-report: only these packages (comma separated)")
     src.add_argument("--no-deps", action="store_true", help="Do not add missing dependencies")
@@ -161,6 +164,7 @@ class Indexes:
     store: dict[str, dict[str, PackageEntry]]
     store_entries: list[PackageEntry]
     store_index_data: bytes
+    filters: PackageFilters
 
 
 def load_indexes(cfg: dict, cache: Cache) -> Indexes:
@@ -180,7 +184,7 @@ def load_indexes(cfg: dict, cache: Cache) -> Indexes:
     store_data = fetch_cached(f"{store_url}/Packages", cache)
     store_entries = parse_packages_index(store_data)
     idx = Indexes(server_url, repo_url, store_url, index_by_family(repo_entries),
-                  index_by_family(store_entries, filters), store_entries, store_data)
+                  index_by_family(store_entries, filters), store_entries, store_data, filters)
     for fam in OS_FAMILIES:
         log.info("%s: %d packages in repository, %d eligible in store", fam, len(idx.repo[fam]), len(idx.store[fam]))
     return idx
@@ -217,6 +221,7 @@ def cmd_report(cfg: dict, args: argparse.Namespace) -> int:
         exclude_publishers=cfg["matching"]["exclude_publishers"],
         mappings=cfg["mappings"],
         ignore_system_components=cfg["matching"]["ignore_system_components"],
+        updates=find_updates(idx.repo, idx.store_entries, idx.filters, cfg["store"]["prefix"]),
     )
     lang = cfg["report"]["language"]
     context = {
@@ -253,13 +258,37 @@ def _human_size(n: int) -> str:
     return str(n)
 
 
+def _update_requests(cfg: dict, idx: Indexes, families: list[str], names: list[str]):
+    """Store entries newer than the repository packages, as (entry, [family]) import requests."""
+    updates = find_updates(idx.repo, idx.store_entries, idx.filters, cfg["store"]["prefix"])
+    wanted = {n.split("-", 1)[1] if n.split("-", 1)[0] in (cfg["store"]["prefix"], cfg["repo"]["prefix"]) else n
+              for n in names}
+    excluded = set(cfg["import"]["update_exclude"])
+    requests_ = []
+    for upd in updates:
+        if upd.family not in families or (wanted and upd.local.base not in wanted):
+            continue
+        if upd.local.base in excluded:
+            log.info("%s: excluded from updates by configuration", upd.local.package)
+            continue
+        log.info("%s (%s) %s -> %s %s", upd.local.package, upd.family, upd.local.version, upd.store.package,
+                 upd.store.version)
+        requests_.append((upd.store, [upd.family]))
+    if not requests_:
+        print("Everything is up to date.")
+    return requests_
+
+
 def cmd_import(cfg: dict, args: argparse.Namespace) -> int:
     prefix = cfg["repo"]["prefix"]
     if not prefix:
         log.error("No prefix: use --prefix or [repo] prefix in the configuration")
         return 2
-    if not args.packages and not args.from_report:
-        log.error("Nothing to import: give package names or --from-report")
+    if not args.packages and not args.from_report and not args.update:
+        log.error("Nothing to import: give package names, --from-report or --update")
+        return 2
+    if args.update and args.from_report:
+        log.error("--update and --from-report cannot be combined")
         return 2
     cache = _cache(cfg)
     idx = load_indexes(cfg, cache)
@@ -271,8 +300,11 @@ def cmd_import(cfg: dict, args: argparse.Namespace) -> int:
         if args.only:
             wanted = set(args.only)
             candidates = [c for c in candidates if c["package"] in wanted or c["package"].split("-", 1)[-1] in wanted]
-    families = cfg["filters"]["families"] or (["windows"] if args.packages else list(OS_FAMILIES))
-    requested = resolve_requests(args.packages, candidates, idx.store_entries, idx.store, families)
+    families = cfg["filters"]["families"] or (["windows"] if args.packages and not args.update else list(OS_FAMILIES))
+    if args.update:
+        requested = _update_requests(cfg, idx, families, names=args.packages + (args.only or []))
+    else:
+        requested = resolve_requests(args.packages, candidates, idx.store_entries, idx.store, families)
     plan = plan_imports(requested, idx.store, idx.repo, prefix, with_deps=cfg["import"]["dependencies"]
                         and not args.no_deps, force=args.force, excluded_bases=tuple(cfg["import"]["exclude"]),
                         restricted_licences=tuple(cfg["store"]["restricted_licences"]))

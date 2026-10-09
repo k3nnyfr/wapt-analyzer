@@ -3,6 +3,12 @@
 ## [Unreleased]
 
 ### Added
+- `import --update` : met à jour les paquets du dépôt pour lesquels le store propose une version plus récente (même OS, même architecture, version complète), avec `update_exclude` pour protéger les paquets maison.
+- Onglet « Mises à jour » : distingue les nouvelles versions des révisions de paquet ; même détection que `import --update`.
+
+## [0.1.0] - 2026-10-09
+
+### Added
 - Commande `report` : paquets manquants, logiciels à importer, logiciels hors WAPT, paquets sans équivalent, mises à jour disponibles.
 - Sorties HTML, JSON et CSV.
 - Configuration TOML, variables d'environnement, mode `--offline`.

@@ -94,7 +94,11 @@ Les autres sont traités comme installés hors WAPT.
 uv run wapt-analyzer import firefox-esr tis-keepassxc     # simulation : affiche le plan
 uv run wapt-analyzer import --from-report wapt-report.json --only gimp,libreoffice-fresh
 uv run wapt-analyzer import firefox-esr --apply           # télécharge, signe, envoie
+uv run wapt-analyzer import --update                      # met à jour les paquets en retard sur le store
+uv run wapt-analyzer import --update firefox chrome --apply
 ```
+
+`--update` reprend la liste de l'onglet « Mises à jour » du rapport : les paquets de votre dépôt pour lesquels le store propose une version plus récente. La comparaison se fait pour le même OS et la même architecture (un paquet local `all` accepte toutes les architectures). Elle porte sur la version complète, donc une nouvelle révision du paquet (`-110` → `-111`) compte aussi. Les noms passés en argument, ou via `--only`, restreignent la liste. `[import] update_exclude` protège vos paquets maison qui portent le même nom qu'un paquet du store.
 
 Pour chaque paquet, avec `--apply` :
 

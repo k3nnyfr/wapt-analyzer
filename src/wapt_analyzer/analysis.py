@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 
 from rapidfuzz import fuzz, process
 
-from .packages import PackageEntry, split_package_name
+from .packages import PackageEntry, PackageFilters, entry_os_families, split_package_name
 from .server import Host
 
 log = logging.getLogger(__name__)
@@ -91,6 +91,11 @@ class OutdatedPackage:
     family: str
     local: PackageEntry
     store: PackageEntry
+
+    @property
+    def kind(self) -> str:
+        """``upstream``: new software version; ``packaging``: new revision of the same version."""
+        return "upstream" if self.store.version.upstream != self.local.version.upstream else "packaging"
 
 
 @dataclass
@@ -209,6 +214,48 @@ def _best_match(key: str, publisher: str, repo_matcher: Matcher, store_matcher: 
         yield max(results, key=lambda r: r[2])  # max keeps the first (local) on ties
 
 
+def _archs(value: str) -> set[str]:
+    return {a.strip() for a in (value or "all").split(",") if a.strip()} or {"all"}
+
+
+def find_updates(
+    repo: dict[str, dict[str, PackageEntry]],
+    store_entries: list[PackageEntry],
+    filters: PackageFilters | None = None,
+    store_prefix: str = "tis",
+) -> list[OutdatedPackage]:
+    """Repository packages for which the store has a newer version, per OS family.
+
+    The store package must have the same name without prefix, target the same OS family, pass the
+    filters and match the local architecture (a local ``all`` package accepts any architecture).
+    The full version is compared, so a new packaging revision (``-110`` -> ``-111``) counts too.
+    """
+    store_by_base: dict[str, list[PackageEntry]] = defaultdict(list)
+    for entry in store_entries:
+        if entry.section == "base":
+            store_by_base[entry.base].append(entry)
+
+    updates = []
+    for fam in sorted(repo):
+        for local in repo[fam].values():
+            local_archs = _archs(local.architecture)
+            candidates = []
+            for entry in store_by_base.get(local.base, ()):
+                if fam not in entry_os_families(entry):
+                    continue
+                if filters and not filters.accept(entry, fam):
+                    continue
+                if "all" not in local_archs and not (_archs(entry.architecture) & (local_archs | {"all"})):
+                    continue
+                candidates.append(entry)
+            if not candidates:
+                continue
+            best = max(candidates, key=lambda e: (e.version, e.prefix == store_prefix))
+            if best.version > local.version:
+                updates.append(OutdatedPackage(family=fam, local=local, store=best))
+    return sorted(updates, key=lambda o: (o.local.base, o.family))
+
+
 def _is_true(value) -> bool:
     return str(value or "0").strip().lower() in ("1", "true", "yes")
 
@@ -225,8 +272,12 @@ def analyze(
     exclude_publishers: list[str] | None = None,
     mappings: dict[str, str] | None = None,
     ignore_system_components: bool = True,
+    updates: list[OutdatedPackage] | None = None,
 ) -> AnalysisResult:
-    """``repo`` and ``store`` are indexes per OS family, as built by ``index_by_family``."""
+    """``repo`` and ``store`` are indexes per OS family, as built by ``index_by_family``.
+
+    ``updates`` is the result of ``find_updates`` (computed from the store index when omitted).
+    """
     families = sorted({h.os_family for h in hosts})
     repo_by_base = {f: _by_base(repo.get(f, {})) for f in set(repo) | set(families)}
     store_by_base = {f: _by_base(store.get(f, {}), store_prefix) for f in set(store) | set(families)}
@@ -338,13 +389,9 @@ def analyze(
         else:
             to_import.append(group)
 
-    # 3. Local packages older than the store version (upstream part only)
-    outdated = []
-    for fam in sorted(repo_by_base):
-        for base, local in repo_by_base[fam].items():
-            remote = store_by_base.get(fam, {}).get(base)
-            if remote and remote.version.upstream > local.version.upstream:
-                outdated.append(OutdatedPackage(family=fam, local=local, store=remote))
+    # 3. Local packages older than the store version
+    outdated = updates if updates is not None else find_updates(
+        repo, [e for idx in store.values() for e in idx.values()], store_prefix=store_prefix)
 
     def by_hosts(items):
         return sorted(items, key=lambda i: (-len(i.hosts), i.family, getattr(i, "base", "") or getattr(i, "key", "")))
@@ -362,6 +409,6 @@ def analyze(
         software_to_import=by_hosts(to_import),
         software_unmanaged=by_hosts(unmanaged),
         software_unmatched=by_hosts(unmatched),
-        outdated=sorted(outdated, key=lambda o: (o.local.base, o.family)),
+        outdated=outdated,
         excluded_count=excluded,
     )

@@ -147,10 +147,36 @@ def test_mappings():
 
 def test_outdated_and_candidates():
     result = run()
-    assert [(o.family, o.local.package, o.store.package) for o in result.outdated] == \
-        [("windows", "tsi-7zip", "tis-7zip")]
+    assert [(o.family, o.local.package, o.store.package, o.kind) for o in result.outdated] == [
+        ("windows", "tsi-7zip", "tis-7zip", "upstream"),        # 24.07 -> 24.08
+        ("windows", "tsi-firefox", "tis-firefox", "packaging"),  # 130.0-1 -> 130.0-5
+    ]  # the macOS tsi-firefox has no newer store variant
     candidates = import_candidates(to_dict(result, {}))
     by_file = {c["filename"]: c for c in candidates}
     assert by_file["tis-gimp_2.10.38-1_windows.wapt"]["host_count"] == 2
     assert by_file["tis-gimp_2.10.38-1_darwin.wapt"]["os"] == ["macos"]
     assert candidates[0]["package"] == "tis-gimp"
+
+
+def test_find_updates_matches_os_and_architecture():
+    from wapt_analyzer.analysis import find_updates
+    from wapt_analyzer.packages import PackageFilters
+
+    repo = index_by_family([
+        pkg("tsi-vlc", "3.0.23-13", architecture="x64"),
+        pkg("tsi-vlc", "3.0.23-15", target_os="darwin", architecture="all"),
+        pkg("tsi-own", "1.0-1"),
+    ])
+    store_entries = [
+        pkg("tis-vlc", "3.0.24-13", architecture="x64"),
+        pkg("tis-vlc", "3.0.30-1", architecture="x86"),              # other architecture: ignored
+        pkg("tis-vlc", "3.0.40-1", architecture="x64", maturity="BETA"),  # filtered maturity
+        pkg("tis-vlc", "3.0.24-16", target_os="darwin", architecture="arm"),
+        pkg("tis-own", "0.9-1"),                                      # older: no update
+    ]
+    updates = find_updates(repo, store_entries, PackageFilters(maturities=("PROD", "")))
+    found = {(u.family, u.local.package): (str(u.store.version), u.kind) for u in updates}
+    assert found == {
+        ("windows", "tsi-vlc"): ("3.0.24-13", "upstream"),
+        ("macos", "tsi-vlc"): ("3.0.24-16", "upstream"),   # local "all" accepts any architecture
+    }

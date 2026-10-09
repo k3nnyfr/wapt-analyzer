@@ -195,12 +195,14 @@ footer { margin-top: 32px; color: var(--muted); font-size: 12px; }
 
 <section class="panel" id="outdated">
   <h2>Paquets du dépôt plus anciens que le store</h2>
-  <p class="intro">Comparaison sur la version amont (hors révision de paquet).</p>
+  <p class="intro">Le store propose une version plus récente, de même OS et de même architecture. Une « révision » est une nouvelle version du paquet pour le même logiciel (correctif du paquet). Mise à jour : <code>uv run wapt-analyzer import --update</code>.</p>
   <div class="scroll"><table id="t-outdated" class="sortable">
-    <thead><tr><th>OS</th><th>Paquet local</th><th>Version locale</th><th>Paquet store</th></tr></thead>
+    <thead><tr><th>OS</th><th>Type</th><th>Paquet local</th><th>Version locale</th><th>Paquet store</th></tr></thead>
     <tbody>
     {% for o in data.outdated %}
-      <tr data-os="{{ o.os }}">{{ os_cell(o.os) }}<td><code>{{ o.local.package }}</code></td><td>{{ o.local.version }}</td><td>{{ pkg_cell(o.store) }}</td></tr>
+      <tr data-os="{{ o.os }}">{{ os_cell(o.os) }}
+        <td>{% if o.kind == 'upstream' %}<span class="tag">nouvelle version</span>{% else %}<span class="tag">révision</span>{% endif %}</td>
+        <td><code>{{ o.local.package }}</code></td><td>{{ o.local.version }}</td><td>{{ pkg_cell(o.store) }}</td></tr>
     {% endfor %}
     </tbody>
   </table></div>
