@@ -62,6 +62,7 @@ def _software(group: SoftwareGroup, lang: str, r: tuple[str, ...]) -> dict:
         "score": round(group.score, 1),
         "alternatives": [a.package for a in group.alternatives],
         "other_os": group.other_os,
+        "folded": group.folded,
         "editions": sorted(group.editions),
         "other_editions": [e.package for e in group.other_editions],
     }
@@ -81,7 +82,8 @@ def to_dict(result: AnalysisResult, context: dict, lang: str = "fr", restricted_
             "missing_packages": len(result.missing_packages),
             "software_to_import": len(result.software_to_import),
             "software_unmanaged": len(result.software_unmanaged),
-            "software_unmatched": len(result.software_unmatched),
+            "software_unmatched": len(result.software_unmatched) - result.folded_count,
+            "software_folded": result.folded_count,
             "outdated": len(result.outdated),
             "excluded_software_entries": result.excluded_count,
         },

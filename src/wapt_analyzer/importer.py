@@ -307,9 +307,42 @@ def find_wapt_python(configured: str = "") -> str:
     raise ImportFailed("waptpython not found: install a WAPT agent or set [signing] wapt_python")
 
 
+def is_windows_python_from_wsl(wapt_python: str) -> bool:
+    return os.name != "nt" and wapt_python.lower().endswith(".exe")
+
+
+def windows_work_dir() -> Path | None:
+    """``%LOCALAPPDATA%\\wapt-analyzer\\import`` seen from WSL, or None if it cannot be resolved."""
+    try:
+        out = subprocess.run(["cmd.exe", "/c", "echo %LOCALAPPDATA%"], capture_output=True, text=True,
+                             timeout=30, cwd="/mnt/c").stdout.strip()
+        if not out or "%" in out:
+            return None
+        local = subprocess.run(["wslpath", "-u", out], capture_output=True, text=True, timeout=30,
+                               check=True).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return Path(local) / "wapt-analyzer" / "import"
+
+
+def default_work_dir(wapt_python: str, cache_dir: Path) -> Path:
+    """Where packages are downloaded and signed.
+
+    A Windows waptpython launched from WSL must work on the Windows filesystem: large writes from Windows
+    to ``\\\\wsl.localhost\\...`` can stall indefinitely (seen while unzipping a 280 MB package).
+    """
+    if is_windows_python_from_wsl(wapt_python):
+        work = windows_work_dir()
+        if work is not None:
+            return work
+        log.warning("Cannot resolve %%LOCALAPPDATA%%: large packages may stall on the WSL share; "
+                    "set [import] work_dir to a /mnt/c/... directory")
+    return cache_dir / "import"
+
+
 def _path_converter(wapt_python: str):
     """A Windows waptpython.exe launched from WSL needs Windows paths."""
-    if os.name != "nt" and wapt_python.lower().endswith(".exe"):
+    if is_windows_python_from_wsl(wapt_python):
         def convert(p) -> str:
             return subprocess.run(["wslpath", "-w", str(p)], check=True, capture_output=True, text=True).stdout.strip()
         return convert
@@ -320,7 +353,8 @@ def sign_packages(items: list[PlannedImport], *, wapt_python: str, certificate: 
                   password: str, trusted_certs: list[Path], prefix: str, output_dir: Path,
                   maturity: str = "", verify: str = "full",
                   on_start: Callable[[PlannedImport], None] | None = None,
-                  on_done: Callable[[PlannedImport], None] | None = None) -> None:
+                  on_done: Callable[[PlannedImport], None] | None = None,
+                  on_stage: Callable[[PlannedImport, str], None] | None = None) -> None:
     """Run wapt_helper.py with waptpython (one process: the key is unlocked once).
 
     Fills ``item.result`` for each item; ``on_start`` / ``on_done`` report progress.
@@ -354,6 +388,10 @@ def sign_packages(items: list[PlannedImport], *, wapt_python: str, certificate: 
         if res.get("event") == "start":
             if on_start:
                 on_start(item)
+            continue
+        if res.get("event") == "stage":
+            if on_stage:
+                on_stage(item, res.get("stage", ""))
             continue
         item.result = res
         if on_done:

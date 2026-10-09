@@ -41,6 +41,10 @@ linux = ["x64", "all", ""]
 [matching]
 threshold = 88             # minimum fuzzy score (0-100) to propose a package
 ignore_system_components = true
+# Unmatched software from these publisher profiles is folded in the report ("oem": hardware vendors)
+fold_profiles = ["oem"]
+# Extra publisher regexes folded the same way
+# fold_publishers = ["^ACME"]
 # Regexes on the software display name; replaces the built-in list when set
 # exclude = ['\bKB\d{6,}\b', '^Microsoft \.NET']
 # Regexes on the inventory key (Windows uninstall key, macOS bundle path or pkgid:)

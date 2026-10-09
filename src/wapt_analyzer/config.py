@@ -83,6 +83,10 @@ DEFAULTS: dict = {
         # Regexes on the publisher
         "exclude_publishers": [r"^apple$"],
         "ignore_system_components": True,
+        # Unmatched software from these publisher profiles is folded in the report (shown on demand)
+        "fold_profiles": ["oem"],
+        # Extra publisher regexes to fold the same way
+        "fold_publishers": [],
     },
     # software name regex -> package name without prefix ("" to ignore the software)
     "mappings": {

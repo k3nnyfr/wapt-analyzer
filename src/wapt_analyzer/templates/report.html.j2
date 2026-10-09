@@ -31,7 +31,10 @@
   </td>
 {%- endmacro %}
 {% macro software_table(id, rows, with_match=True, pickable=False) %}
-  <div class="toolbar"><input type="search" placeholder="Filtrer…" data-filter="{{ id }}"> <span class="muted count" data-count="{{ id }}"></span></div>
+  {% set folded = rows | selectattr('folded') | list %}
+  <div class="toolbar"><input type="search" placeholder="Filtrer…" data-filter="{{ id }}"> <span class="muted count" data-count="{{ id }}"></span>
+    {% if folded %}<label class="unfold"><input type="checkbox" data-unfold="{{ id }}"> afficher les {{ folded | length }} logiciels constructeurs (pilotes, utilitaires, imprimantes…)</label>{% endif %}
+  </div>
   <div class="scroll"><table id="{{ id }}" class="sortable">
     <thead><tr>
       {% if pickable %}{{ pick_th() }}{% endif %}<th>OS</th><th>Logiciel</th><th>Éditeur</th><th>Versions</th><th class="num">Postes</th>
@@ -39,13 +42,13 @@
     </tr></thead>
     <tbody>
     {% for r in rows %}
-      <tr data-os="{{ r.os }}">
+      <tr data-os="{{ r.os }}"{% if r.folded %} data-folded="{{ r.folded }}"{% endif %}>
         {% if pickable %}{{ pick_cell(['import|' ~ r.os ~ '|' ~ r.match.package] if r.match else [], r.match.restricted if r.match else '') }}{% endif %}
         {{ os_cell(r.os) }}
         <td>{{ r.names | join('<br>' | safe) }}
           {% if r.other_os %}<div class="desc">paquet disponible pour : {% for o in r.other_os %}{{ OS_LABELS.get(o, o) }}{% if not loop.last %}, {% endif %}{% endfor %}</div>{% endif %}
           {% if r.other_editions %}<div class="desc">autres éditions disponibles : {% for e in r.other_editions %}<code>{{ e }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</div>{% endif %}</td>
-        <td>{{ r.publishers | join(', ') }}</td>
+        <td>{{ r.publishers | join(', ') }}{% if r.folded %} <span class="tag">{{ r.folded }}</span>{% endif %}</td>
         <td class="small">{{ r.versions[:4] | join(', ') }}{% if r.versions | length > 4 %} …{% endif %}</td>
         {{ hosts_cell(r.host_count, r.hosts) }}
         {% if with_match %}
@@ -117,6 +120,7 @@ details summary { cursor: pointer; }
 .score { border-radius: 5px; padding: 1px 6px; font-size: 12px; }
 .score.hi { color: var(--ok); } .score.mid { color: var(--warn); }
 .tag { font-size: 11px; border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; margin-left: 6px; color: var(--muted); }
+.unfold { color: var(--muted); font-size: 13px; display: flex; gap: 6px; align-items: center; }
 .tag.restricted { color: var(--warn); border-color: var(--warn); }
 .yes { color: var(--ok); } .no { color: var(--muted); }
 pre.cmd { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px; overflow-x: auto; white-space: pre-wrap; }
@@ -211,7 +215,7 @@ footer { margin-top: 32px; color: var(--muted); font-size: 12px; }
 
 <section class="panel" id="unmatched">
   <h2>Logiciels sans paquet équivalent identifié</h2>
-  <p class="intro">Candidats à un paquet maison, à une exclusion ou à un mapping manuel.</p>
+  <p class="intro">Candidats à un paquet maison, à une exclusion ou à un mapping manuel. Les logiciels de constructeurs (profil <code>oem</code>, voir <code>[matching] fold_profiles</code>) sont repliés par défaut.</p>
   {{ software_table('t-unmatched', data.software_unmatched, with_match=False) }}
 </section>
 
@@ -286,14 +290,17 @@ footer { margin-top: 32px; color: var(--muted); font-size: 12px; }
     document.querySelectorAll('table.sortable').forEach(table => {
       const input = document.querySelector(`input[data-filter="${table.id}"]`);
       const q = input ? input.value.toLowerCase() : '';
+      const unfold = document.querySelector(`input[data-unfold="${table.id}"]`);
+      const showFolded = !unfold || unfold.checked;
       [...table.tBodies[0].rows].forEach(r => {
         const osOk = !osFilter || (r.dataset.os || '').split(' ').includes(osFilter);
-        r.hidden = !osOk || (q && !r.textContent.toLowerCase().includes(q));
+        r.hidden = !osOk || (!showFolded && r.dataset.folded) || (q && !r.textContent.toLowerCase().includes(q));
       });
       updateCount(table);
     });
   };
   document.querySelectorAll('input[data-filter]').forEach(input => input.addEventListener('input', applyFilters));
+  document.querySelectorAll('input[data-unfold]').forEach(input => input.addEventListener('change', applyFilters));
   document.querySelectorAll('.osfilter button').forEach(b => b.addEventListener('click', () => {
     osFilter = b.dataset.os;
     document.querySelectorAll('.osfilter button').forEach(x => x.setAttribute('aria-pressed', x === b));

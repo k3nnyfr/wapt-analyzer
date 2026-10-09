@@ -19,6 +19,7 @@ from .importer import (
     ImportFailed,
     collect_trusted_certs,
     default_fingerprints,
+    default_work_dir,
     download_package,
     find_wapt_python,
     plan_imports,
@@ -222,6 +223,8 @@ def cmd_report(cfg: dict, args: argparse.Namespace) -> int:
         mappings=cfg["mappings"],
         ignore_system_components=cfg["matching"]["ignore_system_components"],
         updates=find_updates(idx.repo, idx.store_entries, idx.filters, cfg["store"]["prefix"]),
+        fold_profiles=cfg["matching"]["fold_profiles"],
+        fold_publishers=cfg["matching"]["fold_publishers"],
     )
     lang = cfg["report"]["language"]
     context = {
@@ -246,7 +249,7 @@ def cmd_report(cfg: dict, args: argparse.Namespace) -> int:
     sm = data["summary"]
     print(f"{sm['hosts']} hosts | {sm['missing_packages']} missing packages | "
           f"{sm['software_to_import']} software to import | {sm['software_unmanaged']} outside WAPT | "
-          f"{sm['software_unmatched']} unmatched | {sm['outdated']} outdated")
+          f"{sm['software_unmatched']} unmatched (+{sm['software_folded']} folded) | {sm['outdated']} outdated")
     return 0
 
 
@@ -277,6 +280,9 @@ def _update_requests(cfg: dict, idx: Indexes, families: list[str], names: list[s
     if not requests_:
         print("Everything is up to date.")
     return requests_
+
+
+STAGES = {"verify": "vérification de la signature d'origine…", "sign": "signature…"}
 
 
 def cmd_import(cfg: dict, args: argparse.Namespace) -> int:
@@ -333,7 +339,9 @@ def cmd_import(cfg: dict, args: argparse.Namespace) -> int:
     log.info("Using %s", wapt_python)
 
     # Trust is checked before asking anything: no point unlocking the key for an unverifiable source
-    work_dir = Path(cfg["import"]["work_dir"] or Path(cfg["cache"]["directory"]) / "import").expanduser()
+    work_dir = (Path(cfg["import"]["work_dir"]).expanduser() if cfg["import"]["work_dir"]
+                else default_work_dir(wapt_python, Path(cfg["cache"]["directory"]).expanduser()))
+    log.info("Work directory: %s", work_dir)
     trusted: list[Path] = []
     if cfg["import"]["verify"] == "none":
         log.warning("Source package verification DISABLED (--verify none): packages from %s will be signed "
@@ -391,6 +399,8 @@ def cmd_import(cfg: dict, args: argparse.Namespace) -> int:
                           verify=cfg["import"]["verify"],
                           on_start=lambda item: progress.update(task, current=f"{item.entry.package} -> "
                                                                                f"{item.target_name}"),
+                          on_stage=lambda item, stage: progress.update(
+                              task, current=f"{item.entry.package}: {STAGES.get(stage, stage)}"),
                           on_done=signed_one)
             progress.update(task, current="")
     del key_password
@@ -439,7 +449,7 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_report(cfg, args)
         if args.command == "import":
             return cmd_import(cfg, args)
-    except (WaptServerError, ImportFailed, RuntimeError, OSError) as e:
+    except (WaptServerError, ImportFailed, RuntimeError, OSError, ValueError) as e:
         log.error("%s", e)
         return 1
     except KeyboardInterrupt:

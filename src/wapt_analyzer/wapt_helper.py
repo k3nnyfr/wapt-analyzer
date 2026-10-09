@@ -50,6 +50,8 @@ def process(job, spec, key, signer_chain, trusted, signers):
         # 1. Authenticity of the source package
         verify = spec.get("verify", "full")
         verified_by = None
+        if verify != "none":
+            emit({"event": "stage", "source": source, "stage": "verify"})
         if verify == "full":
             unzip_dir = os.path.join(work_dir, "unzipped")
             pe.unzip_package(target_dir=unzip_dir, cabundle=trusted)  # raises if files or signature are bad
@@ -65,6 +67,7 @@ def process(job, spec, key, signer_chain, trusted, signers):
             pe.maturity = spec["maturity"]
 
         # 3. Sign in place, as wapt-signpackages does
+        emit({"event": "stage", "source": source, "stage": "sign"})
         pe.sign_package(private_key=key, certificate=signer_chain)
         final_name = pe.make_package_filename()
         final_path = os.path.join(output_dir, final_name)

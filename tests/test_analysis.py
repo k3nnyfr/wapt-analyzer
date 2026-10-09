@@ -1,3 +1,5 @@
+import pytest
+
 from wapt_analyzer.analysis import analyze, normalize
 from wapt_analyzer.packages import PackageEntry, Version, index_by_family
 from wapt_analyzer.report import import_candidates, to_dict
@@ -217,3 +219,22 @@ def test_office_editions_are_not_mixed():
     office_2016 = next(g for g in result.software_unmatched if g.editions == {"2016"})
     assert {e.package for e in office_2016.other_editions} >= {"tis-microsoft-office-2024-professional"}
     assert any(g.match.package == "tis-teamviewer" for g in result.software_to_import)
+
+
+def test_oem_profile_folds_only_unmatched_software():
+    store = index_by_family([pkg("tis-lenovo-system-update", name="Lenovo System Update")])
+    host = Host(uuid="U8", name="pc8", os_name="Windows 11 Pro", installed_softwares=[
+        soft("Lenovo System Update", "Lenovo"),
+        soft("Lenovo Vantage Service", "Lenovo Group Ltd."),
+        soft("HP Smart Web Printing 4.5", "HP"),
+        soft("ACME internal tool", "ACME"),
+    ])
+    result = analyze(index_by_family([]), store, [host], fold_profiles=["oem"], fold_publishers=["^ACME$"])
+    assert [g.match.package for g in result.software_to_import] == ["tis-lenovo-system-update"]  # still proposed
+    folded = {g.key: g.folded for g in result.software_unmatched}
+    assert folded == {"lenovo vantage service": "oem", "hp smart web printing": "oem", "acme internal tool": "custom"}
+    assert result.folded_count == 3
+    plain = analyze(index_by_family([]), store, [host])
+    assert plain.folded_count == 0 and all(not g.folded for g in plain.software_unmatched)
+    with pytest.raises(ValueError):
+        analyze(index_by_family([]), store, [host], fold_profiles=["nope"])

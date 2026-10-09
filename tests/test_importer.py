@@ -182,3 +182,16 @@ def test_sign_packages_unlocks_key_once(tmp_path, monkeypatch):
     assert len(calls) == 1
     assert [i.result["filename"] for i in items] == ["tsi-a_1_windows.wapt", "tsi-b_1_windows.wapt",
                                                      "tsi-c_1_windows.wapt"]
+
+
+def test_default_work_dir(tmp_path, monkeypatch):
+    from wapt_analyzer.importer import default_work_dir
+
+    assert default_work_dir("/opt/wapt/waptpython", tmp_path) == tmp_path / "import"
+    # Windows waptpython from WSL: work on the Windows filesystem, never on \\wsl.localhost
+    monkeypatch.setattr(importer.os, "name", "posix")
+    windows = Path("/mnt/c/Users/me/AppData/Local/wapt-analyzer/import")
+    monkeypatch.setattr(importer, "windows_work_dir", lambda: windows)
+    assert default_work_dir("/mnt/c/Program Files (x86)/wapt/waptpython.exe", tmp_path) == windows
+    monkeypatch.setattr(importer, "windows_work_dir", lambda: None)
+    assert default_work_dir("/mnt/c/Program Files (x86)/wapt/waptpython.exe", tmp_path) == tmp_path / "import"

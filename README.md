@@ -80,6 +80,14 @@ Un nom d'éditeur générique en tête (« Microsoft », « Adobe »…) est aus
 
 `[matching] exclude` contient la liste des expressions régulières qui écartent du bruit (mises à jour KB, pilotes, runtimes…).
 
+Les logiciels **sans équivalent** publiés par un constructeur (profil `oem` : HP, Epson, Canon, Intel, AMD, ASUS, Acer, Lenovo, Realtek…) sont **repliés** dans l'onglet « Sans équivalent ». Ils restent affichables avec une case à cocher. Le profil ne touche pas les logiciels pour lesquels un paquet existe : *Lenovo System Update* ou *Epson Scan 2* restent proposés à l'import. Pour le désactiver ou l'étendre :
+
+```toml
+[matching]
+fold_profiles = []                       # défaut : ["oem"]
+fold_publishers = ["^Bayo$", "^ACME"]    # éditeurs supplémentaires à replier
+```
+
 ### Multi-OS (Windows, macOS, Linux)
 
 L'analyse est faite par famille d'OS, déterminée à partir de l'OS du poste et du champ `target_os` des paquets. Un paquet `tsi-firefox` publié pour Windows ne couvre donc pas un Mac. Le store est filtré par architecture selon la famille (`[filters.architectures]`). Quand un logiciel n'a pas de paquet pour son OS mais en a un pour un autre, le rapport l'indique.
@@ -128,6 +136,8 @@ La signature s'appuie sur l'implémentation de référence de WAPT (`waptpackage
 - `C:\Program Files (x86)\wapt` sous Windows, y compris depuis WSL.
 
 Le chemin est détecté automatiquement, ou fixé avec `--wapt-python`.
+
+**Sous WSL avec l'agent Windows**, les téléchargements et les paquets signés sont placés sur le disque Windows (`%LOCALAPPDATA%\wapt-analyzer\import`). Les grosses écritures d'un programme Windows vers le partage `\\wsl.localhost\…` peuvent en effet se bloquer indéfiniment. Ce dossier peut être changé avec `[import] work_dir`, à condition de rester sous `/mnt/c/…`.
 
 ```toml
 [signing]

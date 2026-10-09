@@ -16,6 +16,19 @@ from .server import Host
 
 log = logging.getLogger(__name__)
 
+# Publisher profiles: unmatched software from these publishers is folded in the report (not removed)
+PUBLISHER_PROFILES: dict[str, list[str]] = {
+    # hardware manufacturers: drivers, utilities, printer / scanner software
+    "oem": [
+        r"^HP( Inc\.?)?$", r"^Hewlett[- ]?Packard", r"^(Seiko )?Epson", r"^Canon\b", r"^Brother\b",
+        r"^(Xerox|Lexmark|Ricoh|Kyocera|Toshiba|DYMO)\b", r"^Intel(\(R\))?\b", r"^Advanced Micro Devices",
+        r"^AMD\b", r"^NVIDIA\b", r"^Realtek\b", r"^ASUSTeK\b", r"^Acer\b", r"^Lenovo\b", r"^Dell\b",
+        r"^Samsung Electronics\b", r"^(PFU|FUJITSU)\b", r"^Conexant\b", r"^ICEpower\b", r"^Synaptics\b",
+        r"^Huawei\b", r"^Logitech\b", r"^(Micro-Star|MSI)\b", r"^GIGA-?BYTE", r"^Dolby\b", r"^Qualcomm\b",
+        r"^Broadcom\b", r"^Alps\b", r"^ELAN\b", r"^Waves Audio\b",
+    ],
+}
+
 NON_BASE_SECTIONS = {"host", "group", "unit", "profile", "wsus", "selfservice", "config", "restricted"}
 
 _NOISE = [
@@ -113,6 +126,7 @@ class SoftwareGroup:
     alternatives: list[PackageEntry] = field(default_factory=list)
     other_os: list[str] = field(default_factory=list)     # unmatched here, but a store package exists for these OS
     editions: frozenset[str] = frozenset()                 # edition numbers of the software ("2016")
+    folded: str = ""                                       # unmatched and from a folded publisher profile
     other_editions: list[PackageEntry] = field(default_factory=list)  # packages rejected: other edition
     # host name -> package bases installed by WAPT on it
     host_bases: dict[str, set[str]] = field(default_factory=dict, repr=False)
@@ -141,6 +155,7 @@ class AnalysisResult:
     software_unmanaged: list[SoftwareGroup]
     software_unmatched: list[SoftwareGroup]
     outdated: list[OutdatedPackage]
+    folded_count: int = 0
     excluded_count: int = 0
 
 
@@ -328,6 +343,8 @@ def analyze(
     mappings: dict[str, str] | None = None,
     ignore_system_components: bool = True,
     updates: list[OutdatedPackage] | None = None,
+    fold_profiles: list[str] | None = None,
+    fold_publishers: list[str] | None = None,
 ) -> AnalysisResult:
     """``repo`` and ``store`` are indexes per OS family, as built by ``index_by_family``.
 
@@ -371,6 +388,12 @@ def analyze(
     key_re = [re.compile(p, re.IGNORECASE) for p in (exclude_keys or [])]
     publisher_re = [re.compile(p, re.IGNORECASE) for p in (exclude_publishers or [])]
     mapping_re = [(re.compile(k, re.IGNORECASE), v) for k, v in (mappings or {}).items()]
+    fold_re = [(re.compile(rx, re.IGNORECASE), name) for name in (fold_profiles or [])
+               for rx in PUBLISHER_PROFILES.get(name, [])]
+    fold_re += [(re.compile(rx, re.IGNORECASE), "custom") for rx in (fold_publishers or [])]
+    unknown = set(fold_profiles or []) - set(PUBLISHER_PROFILES)
+    if unknown:
+        raise ValueError(f"Unknown publisher profile(s): {', '.join(sorted(unknown))}")
     groups: dict[tuple[str, str, frozenset[str]], SoftwareGroup] = {}
     excluded = 0
     for host in hosts:
@@ -443,6 +466,8 @@ def analyze(
                 continue
 
         if group.match is None:
+            if publisher and any(rx.search(p) for rx, _ in fold_re for p in group.publishers):
+                group.folded = next(name for rx, name in fold_re if any(rx.search(p) for p in group.publishers))
             unmatched.append(group)
         elif group.match.base in repo_by_base[fam]:
             unmanaged.append(group)
@@ -471,4 +496,5 @@ def analyze(
         software_unmatched=by_hosts(unmatched),
         outdated=outdated,
         excluded_count=excluded,
+        folded_count=sum(1 for g in unmatched if g.folded),
     )
