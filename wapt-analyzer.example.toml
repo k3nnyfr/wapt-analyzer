@@ -1,0 +1,77 @@
+# wapt-analyzer configuration example.
+# Copy to ./wapt-analyzer.toml or ~/.config/wapt-analyzer/config.toml
+# Every value can be overridden on the command line.
+
+[server]
+url = "https://wapt.example.org"
+user = "admin"
+# Password lookup order: $WAPT_PASSWORD, password_file (must be chmod 600), interactive prompt.
+# password_file = "~/.config/wapt-analyzer/password"
+verify_ssl = true          # true, false, or a path to a CA bundle
+workers = 8                # parallel requests when loading host data
+
+[repo]
+# url = "https://wapt.example.org/wapt"   # default: <server.url>/wapt
+prefix = "tsi"             # prefix of your own packages
+
+[store]
+url = "https://wapt.tranquil.it/wapt"
+prefix = "tis"
+# Trust used by `import` to verify source packages before re-signing them.
+# SHA-256 fingerprints of certificates shipped in the source index (ssl/*.crt).
+# Default: the Tranquil IT certificate for the Tranquil IT store, nothing for other sources.
+# trusted_fingerprints = ["8c5127a75392be9cc9afd0dbae1222a673072c308c14d88ab246e23832e8c6bb"]
+# Local certificate files or directories, trusted as given (e.g. an internal repository signer).
+# trusted_certs = ["/etc/wapt/ssl/internal.crt"]
+# Licence tokens of subscription-only packages: flagged in the report, skipped by `import`
+restricted_licences = ["wapt_enterprise", "wapt_entreprise"]
+
+[filters]
+# OS families to analyse: windows, macos, linux (default: those of the registered hosts)
+# families = ["windows", "macos"]
+maturities = ["PROD", ""]
+locales = ["fr", "en", "all", ""]
+
+[filters.architectures]
+# Accepted store package architectures per OS family ("" = field empty in the package)
+windows = ["x64", "all", ""]
+macos = ["arm", "arm64", "x64", "all", ""]
+linux = ["x64", "all", ""]
+
+[matching]
+threshold = 88             # minimum fuzzy score (0-100) to propose a package
+ignore_system_components = true
+# Regexes on the software display name; replaces the built-in list when set
+# exclude = ['\bKB\d{6,}\b', '^Microsoft \.NET']
+# Regexes on the inventory key (Windows uninstall key, macOS bundle path or pkgid:)
+# exclude_keys = ['^/System/', '^pkgid:']
+# Regexes on the publisher
+# exclude_publishers = ['^apple$']
+
+[mappings]
+# Force the package for a software (regex on display name -> package name without prefix),
+# or ignore it with an empty string. Merged with the built-in mappings (e.g. macOS "Code" -> vscode).
+# "^Microsoft Teams" = "microsoft-teams-uwp"
+# "^ACME internal" = ""
+
+[signing]
+# certificate = "/path/to/signer.crt"
+# private_key = "/path/to/signer.pem"       # default: certificate path with .pem extension
+# key_password_file = ""                    # chmod 600; otherwise $WAPT_KEY_PASSWORD or prompt (asked once)
+# wapt_python = ""                          # default: auto-detect a WAPT agent
+
+[import]
+# maturity = ""                             # force the maturity of imported packages
+verify = "full"                             # full (files + metadata), control (metadata only), none
+dependencies = true
+exclude = ["waptupgrade", "waptsetup", "waptagent", "waptserver"]
+# work_dir = "~/.cache/wapt-analyzer/import"
+
+[report]
+output = "wapt-report.html"
+# json = "wapt-report.json"
+# csv_dir = "csv"
+language = "fr"            # language of package descriptions
+
+# [cache]
+# directory = "~/.cache/wapt-analyzer"

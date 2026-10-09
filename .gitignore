@@ -1,0 +1,20 @@
+__pycache__/
+*.py[cod]
+.venv/
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Local configuration, secrets and generated reports
+wapt-analyzer.toml
+password
+*.pem
+*.key
+*.crt
+!tests/*.crt
+*.p12
+wapt-report*.html
+wapt-report*.json
+csv/

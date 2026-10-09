@@ -1,0 +1,284 @@
+{% set ctx = data.context %}
+{% set s = data.summary %}
+{% macro pkg_cell(p) -%}
+  {% if p %}
+  <div class="pkg">
+    {% if p.icon_sha256sum and ctx.icons_url %}<img loading="lazy" alt="" src="{{ ctx.icons_url }}/{{ p.icon_sha256sum }}.png">{% endif %}
+    <div>
+      {% if ctx.store_page_url and p.package.startswith(ctx.store_prefix ~ '-') %}
+      <a href="{{ ctx.store_page_url }}/{{ p.package }}" target="_blank" rel="noopener"><code>{{ p.package }}</code></a>
+      {% else %}<code>{{ p.package }}</code>{% endif %}
+      <span class="muted">{{ p.version }}</span>
+      {% if p.restricted %}<span class="tag restricted" title="Licence {{ p.restricted }} : téléchargement réservé aux abonnés">Enterprise</span>{% endif %}
+      {% if p.description %}<div class="desc">{{ p.description }}</div>{% endif %}
+    </div>
+  </div>
+  {% else %}<span class="muted">—</span>{% endif %}
+{%- endmacro %}
+{% set OS_LABELS = {'windows': 'Windows', 'macos': 'macOS', 'linux': 'Linux'} %}
+{% macro os_cell(os) -%}
+  <td><span class="os os-{{ os }}">{{ OS_LABELS.get(os, os) }}</span></td>
+{%- endmacro %}
+{% macro hosts_cell(n, hosts) -%}
+  <td class="num" data-sort="{{ n }}">
+    <details><summary>{{ n }}</summary><div class="hosts">{{ hosts | join(', ') }}</div></details>
+  </td>
+{%- endmacro %}
+{% macro software_table(id, rows, with_match=True) %}
+  <div class="toolbar"><input type="search" placeholder="Filtrer…" data-filter="{{ id }}"> <span class="muted count" data-count="{{ id }}"></span></div>
+  <div class="scroll"><table id="{{ id }}" class="sortable">
+    <thead><tr>
+      <th>OS</th><th>Logiciel</th><th>Éditeur</th><th>Versions</th><th class="num">Postes</th>
+      {% if with_match %}<th>Paquet proposé</th><th class="num">Score</th>{% endif %}
+    </tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr data-os="{{ r.os }}">
+        {{ os_cell(r.os) }}
+        <td>{{ r.names | join('<br>' | safe) }}
+          {% if r.other_os %}<div class="desc">paquet disponible pour : {% for o in r.other_os %}{{ OS_LABELS.get(o, o) }}{% if not loop.last %}, {% endif %}{% endfor %}</div>{% endif %}</td>
+        <td>{{ r.publishers | join(', ') }}</td>
+        <td class="small">{{ r.versions[:4] | join(', ') }}{% if r.versions | length > 4 %} …{% endif %}</td>
+        {{ hosts_cell(r.host_count, r.hosts) }}
+        {% if with_match %}
+        <td>{{ pkg_cell(r.match) }}{% if r.match_source == 'mapping' %}<span class="tag">mapping</span>{% endif %}
+          {% if r.alternatives %}<div class="desc">ou : {% for a in r.alternatives %}<code>{{ a }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</div>{% endif %}</td>
+        <td class="num" data-sort="{{ r.score }}"><span class="score {{ 'hi' if r.score >= 97 else 'mid' }}">{{ r.score | round | int }}</span></td>
+        {% endif %}
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+{% endmacro %}
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rapport WAPT</title>
+<style>
+:root {
+  --bg: #f7f7f5; --surface: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --border: #e2e1dc;
+  --accent: #1f6feb; --accent-soft: #e7f0fe; --ok: #1a7f37; --warn: #9a6700; --row: #fafaf8;
+  --mac: #6e40c9; --mac-soft: #f1ebfc; --linux: #9a4d00; --linux-soft: #fdf0e3;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #151514; --surface: #1e1e1c; --text: #ecebe6; --muted: #9b9a93; --border: #33332f;
+          --accent: #6ea8fe; --accent-soft: #1d2a3d; --ok: #57c26b; --warn: #d6a43a; --row: #232321;
+          --mac: #b99cf5; --mac-soft: #2a2140; --linux: #e8a35c; --linux-soft: #3a2a19; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+       font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+main { max-width: 1280px; margin: 0 auto; padding: 24px 16px 64px; }
+header h1 { margin: 0 0 4px; font-size: 24px; }
+.muted { color: var(--muted); }
+.small { font-size: 12px; }
+code { font: 12.5px ui-monospace, SFMono-Regular, Consolas, monospace; }
+a { color: var(--accent); text-decoration: none; } a:hover { text-decoration: underline; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin: 20px 0 28px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+.card .v { font-size: 26px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.card .l { color: var(--muted); font-size: 12.5px; }
+.card a { color: inherit; display: block; }
+nav.tabs { display: flex; flex-wrap: wrap; gap: 6px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+nav.tabs button { background: none; border: 0; border-bottom: 2px solid transparent; color: var(--muted);
+                  padding: 8px 12px; font: inherit; cursor: pointer; }
+nav.tabs button[aria-selected="true"] { color: var(--text); border-color: var(--accent); font-weight: 600; }
+nav.tabs .badge { background: var(--accent-soft); color: var(--accent); border-radius: 99px; padding: 0 7px; font-size: 12px; margin-left: 4px; }
+section.panel { display: none; } section.panel.active { display: block; }
+section h2 { font-size: 17px; margin: 4px 0 4px; }
+section p.intro { color: var(--muted); margin: 0 0 12px; max-width: 80ch; }
+.toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; }
+.toolbar input { padding: 7px 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface);
+                 color: var(--text); font: inherit; width: min(340px, 100%); }
+.scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+tbody tr:last-child td { border-bottom: 0; }
+tbody tr:nth-child(even) { background: var(--row); }
+th { position: sticky; top: 0; background: var(--surface); font-size: 12.5px; color: var(--muted);
+     font-weight: 600; cursor: pointer; user-select: none; white-space: nowrap; }
+th[aria-sort="ascending"]::after { content: " ▲"; } th[aria-sort="descending"]::after { content: " ▼"; }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+.pkg { display: flex; gap: 8px; align-items: flex-start; }
+.pkg img { width: 24px; height: 24px; flex: none; border-radius: 4px; }
+.desc { color: var(--muted); font-size: 12px; max-width: 60ch; }
+details summary { cursor: pointer; }
+.hosts { font-size: 12px; color: var(--muted); text-align: left; max-width: 40ch; white-space: normal; }
+.score { border-radius: 5px; padding: 1px 6px; font-size: 12px; }
+.score.hi { color: var(--ok); } .score.mid { color: var(--warn); }
+.tag { font-size: 11px; border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; margin-left: 6px; color: var(--muted); }
+.tag.restricted { color: var(--warn); border-color: var(--warn); }
+.yes { color: var(--ok); } .no { color: var(--muted); }
+pre.cmd { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px; overflow-x: auto; white-space: pre-wrap; }
+.os { font-size: 12px; border-radius: 4px; padding: 1px 6px; background: var(--accent-soft); color: var(--accent); white-space: nowrap; }
+.os-macos { background: var(--mac-soft); color: var(--mac); }
+.os-linux { background: var(--linux-soft); color: var(--linux); }
+.osfilter { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 16px; }
+.osfilter button { font: inherit; font-size: 13px; padding: 4px 12px; border-radius: 99px; border: 1px solid var(--border);
+                   background: var(--surface); color: var(--text); cursor: pointer; }
+.osfilter button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+footer { margin-top: 32px; color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+<main>
+<header>
+  <h1>Rapport WAPT</h1>
+  <div class="muted">Serveur <code>{{ ctx.server_url or '—' }}</code> · préfixe <code>{{ ctx.prefix or '—' }}</code> · store <code>{{ ctx.store_url }}</code> · généré le {{ data.generated_at }}</div>
+</header>
+
+<div class="cards">
+  <div class="card"><div class="v">{{ s.hosts }}</div><div class="l">postes analysés{% if s.hosts_by_os %} ({% for os, n in s.hosts_by_os.items() %}{{ n }} {{ OS_LABELS.get(os, os) }}{% if not loop.last %}, {% endif %}{% endfor %}){% endif %}</div></div>
+  <div class="card"><div class="v">{{ s.repo_packages }}</div><div class="l">paquets dans le dépôt</div></div>
+  <div class="card"><div class="v">{{ s.store_packages }}</div><div class="l">paquets éligibles dans le store</div></div>
+  <div class="card"><a href="#missing"><div class="v">{{ s.missing_packages }}</div><div class="l">paquets WAPT manquants</div></a></div>
+  <div class="card"><a href="#import"><div class="v">{{ s.software_to_import }}</div><div class="l">logiciels à importer depuis le store</div></a></div>
+  <div class="card"><a href="#unmanaged"><div class="v">{{ s.software_unmanaged }}</div><div class="l">logiciels avec paquet local, installés hors WAPT</div></a></div>
+</div>
+
+{% if s.hosts_by_os | length > 1 %}
+<div class="osfilter" role="group" aria-label="Filtrer par OS">
+  <button type="button" data-os="" aria-pressed="true">Tous les OS</button>
+  {% for os, n in s.hosts_by_os.items() %}<button type="button" data-os="{{ os }}" aria-pressed="false">{{ OS_LABELS.get(os, os) }} · {{ n }}</button>{% endfor %}
+</div>
+{% endif %}
+<nav class="tabs" role="tablist">
+  <button role="tab" data-tab="missing">Paquets manquants<span class="badge">{{ s.missing_packages }}</span></button>
+  <button role="tab" data-tab="import">À importer<span class="badge">{{ s.software_to_import }}</span></button>
+  <button role="tab" data-tab="unmanaged">Hors WAPT<span class="badge">{{ s.software_unmanaged }}</span></button>
+  <button role="tab" data-tab="unmatched">Sans équivalent<span class="badge">{{ s.software_unmatched }}</span></button>
+  <button role="tab" data-tab="outdated">Mises à jour<span class="badge">{{ s.outdated }}</span></button>
+  <button role="tab" data-tab="candidates">Liste d'import<span class="badge">{{ candidates | length }}</span></button>
+</nav>
+
+<section class="panel" id="missing">
+  <h2>Paquets WAPT installés sur les postes mais absents du dépôt</h2>
+  <p class="intro">Paquets présents dans l'inventaire WAPT des postes et dont aucune version (quel que soit le préfixe) n'existe dans le dépôt du serveur pour l'OS du poste.</p>
+  <div class="toolbar"><input type="search" placeholder="Filtrer…" data-filter="t-missing"> <span class="muted count" data-count="t-missing"></span></div>
+  <div class="scroll"><table id="t-missing" class="sortable">
+    <thead><tr><th>OS</th><th>Paquet</th><th>Versions vues</th><th>Statut</th><th class="num">Postes</th><th>Disponible dans le store</th></tr></thead>
+    <tbody>
+    {% for m in data.missing_packages %}
+      <tr data-os="{{ m.os }}">
+        {{ os_cell(m.os) }}
+        <td>{% for p in m.packages_seen %}<code>{{ p }}</code>{% if not loop.last %}<br>{% endif %}{% endfor %}
+          {% if m.other_os %}<div class="desc">présent dans le dépôt pour : {% for o in m.other_os %}{{ OS_LABELS.get(o, o) }}{% if not loop.last %}, {% endif %}{% endfor %}</div>{% endif %}</td>
+        <td class="small">{{ m.versions_seen | join(', ') }}</td>
+        <td class="small">{{ m.statuses | join(', ') }}</td>
+        {{ hosts_cell(m.host_count, m.hosts) }}
+        <td>{{ pkg_cell(m.store) }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</section>
+
+<section class="panel" id="import">
+  <h2>Logiciels installés hors WAPT, avec un paquet disponible dans le store</h2>
+  <p class="intro">Le rapprochement nom ↔ paquet est heuristique (score sur 100). Les correspondances fausses ou manquantes se corrigent avec la section <code>[mappings]</code> du fichier de configuration.</p>
+  {{ software_table('t-import', data.software_to_import) }}
+</section>
+
+<section class="panel" id="unmanaged">
+  <h2>Logiciels ayant déjà un paquet dans le dépôt, mais installés hors WAPT</h2>
+  <p class="intro">Le paquet existe chez vous : ces postes pourraient être repris en gestion WAPT.</p>
+  {{ software_table('t-unmanaged', data.software_unmanaged) }}
+</section>
+
+<section class="panel" id="unmatched">
+  <h2>Logiciels sans paquet équivalent identifié</h2>
+  <p class="intro">Candidats à un paquet maison, à une exclusion ou à un mapping manuel.</p>
+  {{ software_table('t-unmatched', data.software_unmatched, with_match=False) }}
+</section>
+
+<section class="panel" id="outdated">
+  <h2>Paquets du dépôt plus anciens que le store</h2>
+  <p class="intro">Comparaison sur la version amont (hors révision de paquet).</p>
+  <div class="scroll"><table id="t-outdated" class="sortable">
+    <thead><tr><th>OS</th><th>Paquet local</th><th>Version locale</th><th>Paquet store</th></tr></thead>
+    <tbody>
+    {% for o in data.outdated %}
+      <tr data-os="{{ o.os }}">{{ os_cell(o.os) }}<td><code>{{ o.local.package }}</code></td><td>{{ o.local.version }}</td><td>{{ pkg_cell(o.store) }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</section>
+
+<section class="panel" id="candidates">
+  <h2>Liste des paquets du store suggérés à l'import</h2>
+  <p class="intro">Union des paquets manquants disponibles dans le store et des logiciels à importer. Les paquets marqués <span class="tag restricted">Enterprise</span> sont réservés aux abonnés : <code>wapt-analyzer import</code> les ignore (voir <code>[store] restricted_licences</code>).</p>
+  <div class="scroll"><table id="t-candidates" class="sortable">
+    <thead><tr><th>OS</th><th>Paquet</th><th>Version</th><th>Architecture</th><th class="num">Postes</th><th>Fichier</th></tr></thead>
+    <tbody>
+    {% for c in candidates %}
+      <tr data-os="{{ c.os | join(' ') }}">
+        <td>{% for os in c.os %}<span class="os os-{{ os }}">{{ OS_LABELS.get(os, os) }}</span> {% endfor %}</td>
+        <td><code>{{ c.package }}</code>{% if c.restricted %}<span class="tag restricted" title="Licence {{ c.restricted }} : téléchargement réservé aux abonnés">Enterprise</span>{% endif %}</td><td>{{ c.version }}</td><td>{{ c.architecture }}</td>
+        <td class="num" data-sort="{{ c.host_count }}">{{ c.host_count }}</td>
+        <td class="small"><code>{{ c.filename }}</code></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</section>
+
+<footer>{{ data.generator }} · {{ s.excluded_software_entries }} entrées d'inventaire exclues (mises à jour, pilotes, composants système…)</footer>
+</main>
+<script>
+(() => {
+  const tabs = [...document.querySelectorAll('nav.tabs button')];
+  const show = (id) => {
+    if (!document.getElementById(id)) id = tabs[0].dataset.tab;
+    tabs.forEach(b => b.setAttribute('aria-selected', b.dataset.tab === id));
+    document.querySelectorAll('section.panel').forEach(p => p.classList.toggle('active', p.id === id));
+  };
+  tabs.forEach(b => b.addEventListener('click', () => { history.replaceState(null, '', '#' + b.dataset.tab); show(b.dataset.tab); }));
+  window.addEventListener('hashchange', () => show(location.hash.slice(1)));
+  show(location.hash.slice(1));
+
+  const updateCount = (table) => {
+    const el = document.querySelector(`[data-count="${table.id}"]`);
+    if (!el) return;
+    const rows = [...table.tBodies[0].rows];
+    el.textContent = `${rows.filter(r => !r.hidden).length} / ${rows.length}`;
+  };
+  let osFilter = '';
+  const applyFilters = () => {
+    document.querySelectorAll('table.sortable').forEach(table => {
+      const input = document.querySelector(`input[data-filter="${table.id}"]`);
+      const q = input ? input.value.toLowerCase() : '';
+      [...table.tBodies[0].rows].forEach(r => {
+        const osOk = !osFilter || (r.dataset.os || '').split(' ').includes(osFilter);
+        r.hidden = !osOk || (q && !r.textContent.toLowerCase().includes(q));
+      });
+      updateCount(table);
+    });
+  };
+  document.querySelectorAll('input[data-filter]').forEach(input => input.addEventListener('input', applyFilters));
+  document.querySelectorAll('.osfilter button').forEach(b => b.addEventListener('click', () => {
+    osFilter = b.dataset.os;
+    document.querySelectorAll('.osfilter button').forEach(x => x.setAttribute('aria-pressed', x === b));
+    applyFilters();
+  }));
+  applyFilters();
+
+  document.querySelectorAll('table.sortable th').forEach((th, idx) => {
+    th.addEventListener('click', () => {
+      const table = th.closest('table');
+      const asc = th.getAttribute('aria-sort') !== 'ascending';
+      table.querySelectorAll('th').forEach(h => h.removeAttribute('aria-sort'));
+      th.setAttribute('aria-sort', asc ? 'ascending' : 'descending');
+      const val = (r) => { const c = r.cells[idx]; return c.dataset.sort !== undefined ? parseFloat(c.dataset.sort) : c.textContent.trim().toLowerCase(); };
+      const rows = [...table.tBodies[0].rows].sort((a, b) => {
+        const x = val(a), y = val(b);
+        return (typeof x === 'number' ? x - y : x.localeCompare(y)) * (asc ? 1 : -1);
+      });
+      table.tBodies[0].append(...rows);
+    });
+  });
+})();
+</script>
+</body>
+</html>
