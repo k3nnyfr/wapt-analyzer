@@ -13,6 +13,7 @@ import requests
 
 from . import __version__
 from .analysis import analyze, find_updates
+from .cleanup import delete_packages, plan_cleanup
 from .config import load_config, resolve_key_password, resolve_password
 from .fetch import USER_AGENT, Cache, fetch_cached
 from .importer import (
@@ -113,6 +114,8 @@ def build_parser() -> argparse.ArgumentParser:
     sig.add_argument("--key-password-file", help="File containing the key passphrase (chmod 600)")
     sig.add_argument("--wapt-python", help="waptpython interpreter of a WAPT agent (default: auto-detect)")
     sig.add_argument("--set-maturity", help="Maturity of the imported packages (default: keep the store one)")
+    act.add_argument("--cleanup", action="store_true",
+                     help="After a successful upload, remove the versions superseded by the imported packages")
     trust = imp.add_argument_group("source verification")
     trust.add_argument("--verify", choices=["full", "control", "none"],
                        help="Source package verification: files + metadata (full, default), metadata only, or none")
@@ -121,6 +124,20 @@ def build_parser() -> argparse.ArgumentParser:
     trust.add_argument("--trusted-fingerprint", action="append", metavar="SHA256",
                        help="Trust the certificate with this SHA-256 fingerprint shipped in the source index "
                             "(repeatable; default: Tranquil IT for the Tranquil IT store)")
+
+    cln = sub.add_parser(
+        "cleanup", parents=[common],
+        help="Remove from the repository the package versions no host can see any more (dry run by default)",
+        description="A version is removed only when a newer version of the same package covers it entirely "
+                    "(same maturity, OS, compatible architecture and locale, OS version range included), "
+                    "and no dependency pins it.",
+    )
+    cln.add_argument("packages", nargs="*", help="Restrict to these packages (tsi-firefox or firefox)")
+    cln.add_argument("--keep", type=int, help="Also keep this many previous versions (default: 0)")
+    cln.add_argument("--all-prefixes", action="store_true",
+                     help="Also clean packages that do not carry your prefix")
+    cln.add_argument("--apply", action="store_true", help="Really delete (default: dry run)")
+    cln.add_argument("-y", "--yes", action="store_true", help="Do not ask for confirmation")
     return parser
 
 
@@ -135,7 +152,7 @@ def apply_args(cfg: dict, args: argparse.Namespace) -> dict:
         "csv_dir": ("report", "csv_dir"), "lang": ("report", "language"), "cache_dir": ("cache", "directory"),
         "certificate": ("signing", "certificate"), "private_key": ("signing", "private_key"),
         "key_password_file": ("signing", "key_password_file"), "wapt_python": ("signing", "wapt_python"),
-        "set_maturity": ("import", "maturity"), "verify": ("import", "verify"),
+        "set_maturity": ("import", "maturity"), "verify": ("import", "verify"), "keep": ("cleanup", "keep"),
     }
     for attr, (section, key) in mapping.items():
         value = getattr(args, attr, None)
@@ -166,6 +183,7 @@ class Indexes:
     store_entries: list[PackageEntry]
     store_index_data: bytes
     filters: PackageFilters
+    repo_entries: list[PackageEntry]
 
 
 def load_indexes(cfg: dict, cache: Cache) -> Indexes:
@@ -185,7 +203,7 @@ def load_indexes(cfg: dict, cache: Cache) -> Indexes:
     store_data = fetch_cached(f"{store_url}/Packages", cache)
     store_entries = parse_packages_index(store_data)
     idx = Indexes(server_url, repo_url, store_url, index_by_family(repo_entries),
-                  index_by_family(store_entries, filters), store_entries, store_data, filters)
+                  index_by_family(store_entries, filters), store_entries, store_data, filters, repo_entries)
     for fam in OS_FAMILIES:
         log.info("%s: %d packages in repository, %d eligible in store", fam, len(idx.repo[fam]), len(idx.store[fam]))
     return idx
@@ -282,6 +300,58 @@ def _update_requests(cfg: dict, idx: Indexes, families: list[str], names: list[s
     return requests_
 
 
+def run_cleanup(cfg: dict, idx: Indexes, *, names: list[str], apply: bool, yes: bool,
+                all_prefixes: bool = False, server: WaptServer | None = None) -> int:
+    """Plan (and with ``apply``, perform) the removal of superseded versions."""
+    prefix = "" if all_prefixes else cfg["repo"]["prefix"]
+    plan = plan_cleanup(idx.repo_entries, keep=int(cfg["cleanup"]["keep"]), names=names,
+                        exclude=tuple(cfg["cleanup"]["exclude"]), prefix=prefix)
+    todo = [i for i in plan if not i.skip]
+    if not plan:
+        print("Nothing to clean: every package version is still the latest for some host.")
+        return 0
+    print(f"Cleanup plan ({len(todo)} to delete, {len(plan) - len(todo)} kept):")
+    for item in plan:
+        e = item.entry
+        status = f"KEEP ({item.skip})" if item.skip else "DELETE"
+        print(f"  {status:<8} {e.package} {e.version}  {e.target_os or 'all'} {e.architecture}"
+              f"{' min_os=' + e.get('min_os_version') if e.get('min_os_version') else ''}"
+              f"  [superseded by {item.latest.version}]")
+    total = sum(int(i.entry.get("size") or 0) for i in todo)
+    print(f"Space freed: {_human_size(total)}")
+    if not todo:
+        return 0
+    if not apply:
+        print("Dry run: nothing deleted. Add --apply to delete.")
+        return 0
+    if not yes and sys.stdin.isatty():
+        if input(f"Delete {len(todo)} package version(s) from {idx.server_url}? This cannot be undone. [y/N] "
+                 ).strip().lower() not in ("y", "yes", "o", "oui"):
+            print("Aborted.")
+            return 1
+    own_session = server is None
+    if own_session:
+        server = WaptServer(idx.server_url, cfg["server"]["user"], resolve_password(cfg),
+                            verify=cfg["server"]["verify_ssl"])
+        server.login()
+    try:
+        result = delete_packages(server, [i.entry.get("package_uuid") for i in todo])
+    finally:
+        if own_session:
+            server.logout()
+    deleted, errors = result.get("deleted") or [], result.get("errors") or []
+    print(f"{len(deleted)} deleted, {len(errors)} error(s).")
+    for err in errors:
+        print(f"  ERROR {err}")
+    return 1 if errors or len(deleted) < len(todo) else 0
+
+
+def cmd_cleanup(cfg: dict, args: argparse.Namespace) -> int:
+    idx = load_indexes(cfg, _cache(cfg))
+    return run_cleanup(cfg, idx, names=args.packages, apply=args.apply, yes=args.yes,
+                       all_prefixes=args.all_prefixes)
+
+
 STAGES = {"verify": "vérification de la signature d'origine…", "sign": "signature…"}
 
 
@@ -296,6 +366,10 @@ def cmd_import(cfg: dict, args: argparse.Namespace) -> int:
     if args.update and args.from_report:
         log.error("--update and --from-report cannot be combined")
         return 2
+    if args.cleanup and args.no_upload:
+        log.error("--cleanup needs the upload: it cannot be combined with --no-upload")
+        return 2
+    cleanup_code = 0
     cache = _cache(cfg)
     idx = load_indexes(cfg, cache)
 
@@ -328,7 +402,8 @@ def cmd_import(cfg: dict, args: argparse.Namespace) -> int:
     if not todo:
         return 0
     if not args.apply:
-        print("Dry run: nothing done. Add --apply to download, sign and upload.")
+        print("Dry run: nothing done. Add --apply to download, sign and upload."
+              + (" The superseded versions will then be cleaned (--cleanup)." if args.cleanup else ""))
         return 0
 
     signing = cfg["signing"]
@@ -422,6 +497,15 @@ def cmd_import(cfg: dict, args: argparse.Namespace) -> int:
                         item.result.update(ok=False, error=str(e))
                         log.error("%s: %s", path.name, e)
                 progress.update(task, current="")
+
+            uploaded = [i for i in signed if i.result.get("uploaded")]
+            if args.cleanup and uploaded:
+                # Fresh repository index: the server rebuilds it after each upload
+                print("\nCleanup of the versions superseded by this import:")
+                idx.repo_entries = parse_packages_index(fetch_cached(
+                    f"{idx.repo_url}/Packages", _cache(cfg), verify=cfg["server"]["verify_ssl"]))
+                cleanup_code = run_cleanup(cfg, idx, names=[i.result["package"] for i in uploaded], apply=True,
+                                           yes=args.yes, server=server)
         finally:
             server.logout()
 
@@ -430,7 +514,7 @@ def cmd_import(cfg: dict, args: argparse.Namespace) -> int:
           + f", {len(failed)} failed. Signed packages: {output_dir}")
     for item in failed:
         print(f"  FAILED {item.entry.package}: {item.result.get('error', 'not processed')}")
-    return 1 if failed else 0
+    return 1 if failed or cleanup_code else 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -449,6 +533,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_report(cfg, args)
         if args.command == "import":
             return cmd_import(cfg, args)
+        if args.command == "cleanup":
+            return cmd_cleanup(cfg, args)
     except (WaptServerError, ImportFailed, RuntimeError, OSError, ValueError) as e:
         log.error("%s", e)
         return 1

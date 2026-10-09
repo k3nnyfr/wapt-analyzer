@@ -172,6 +172,33 @@ En ligne de commande : `--trusted-fingerprint SHA256` et `--trusted-cert CHEMIN`
 
 `--verify none` désactive toute vérification. À n'utiliser que si vous maîtrisez totalement la source : les paquets seront signés avec votre clé sans aucun contrôle.
 
+## Nettoyer le dépôt
+
+Après une mise à jour, les anciennes versions restent dans le dépôt. `cleanup` supprime celles qu'aucun poste ne peut plus installer :
+
+```bash
+uv run wapt-analyzer cleanup                    # simulation : affiche ce qui serait supprimé
+uv run wapt-analyzer cleanup firefox --apply    # seulement les anciennes versions de tsi-firefox
+uv run wapt-analyzer import --update --apply --cleanup   # mise à jour puis nettoyage dans la foulée
+```
+
+Les agents WAPT installent la version la plus élevée parmi celles qui correspondent à leur OS, leur architecture, leur locale, leur maturité et leur version d'OS. Une version n'est donc supprimée que si une version plus récente du même paquet la **couvre entièrement** :
+
+- même maturité ;
+- les mêmes OS (ou plus) ;
+- une architecture compatible : `all` couvre `x64`, l'inverse non ;
+- la même locale (ou `all`) ;
+- une plage `min_os_version` / `max_os_version` qui inclut la sienne.
+
+Exemple : si la nouvelle version d'un paquet exige Windows 10 et l'ancienne non, l'ancienne reste, car c'est la dernière installable sur un poste Windows 7.
+
+Garde-fous :
+- une version visée par une dépendance à version précise, comme `tsi-foo(=1.2-3)`, n'est pas supprimée ;
+- seuls les paquets à votre préfixe sont concernés, sauf avec `--all-prefixes` ;
+- `--keep N` conserve en plus les N versions précédentes, pour pouvoir revenir en arrière ;
+- `[cleanup] exclude` protège des paquets ;
+- les suppressions sont définitives et demandent une confirmation, sauf avec `-y`.
+
 ## Limites
 
 - Le serveur WAPT ne conserve que l'état **actuel** des paquets sur chaque poste. Un paquet désinstallé disparaît de l'inventaire, et l'historique est donc partiel.

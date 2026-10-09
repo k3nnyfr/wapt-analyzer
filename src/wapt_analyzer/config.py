@@ -108,6 +108,10 @@ DEFAULTS: dict = {
         "update_exclude": [],
         "work_dir": "",               # default: <cache>/import
     },
+    "cleanup": {
+        "keep": 0,                    # previous versions kept in addition to the latest
+        "exclude": [],                # packages (name without prefix) never cleaned
+    },
     "report": {
         "output": "wapt-report.html",
         "json": "",

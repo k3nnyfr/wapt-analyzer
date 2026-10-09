@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- Commande `cleanup` : supprime du dépôt les versions qu'aucun poste ne peut plus installer, parce qu'une version plus récente les couvre entièrement (OS, architecture, locale, maturité, plage de versions d'OS). Garde-fous : dépendances à version précise, préfixe, `--keep N`, `[cleanup] exclude`. Simulation par défaut.
+- `import --cleanup` : nettoyage des versions remplacées, enchaîné juste après l'upload.
+
 ## [0.3.0] - 2026-10-09
 
 ### Added
