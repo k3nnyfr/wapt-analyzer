@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.3.0] - 2026-10-09
 
 ### Added
 - Profil d'éditeurs `oem` : les logiciels constructeurs sans équivalent sont repliés dans l'onglet « Sans équivalent » (affichables à la demande) ; configurable avec `fold_profiles` / `fold_publishers`.
