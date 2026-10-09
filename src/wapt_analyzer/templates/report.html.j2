@@ -19,21 +19,28 @@
 {% macro os_cell(os) -%}
   <td><span class="os os-{{ os }}">{{ OS_LABELS.get(os, os) }}</span></td>
 {%- endmacro %}
+{# checkbox selecting store package(s) for the import command; keys are "mode|os|name" #}
+{% macro pick_cell(keys, restricted='') -%}
+  <td class="pick">{% if keys %}<input type="checkbox" class="pick" data-keys="{{ keys | join(' ') }}"
+    {% if restricted %}disabled title="Réservé aux abonnés (licence {{ restricted }})"{% else %}aria-label="Sélectionner"{% endif %}>{% endif %}</td>
+{%- endmacro %}
+{% macro pick_th() -%}<th class="pick nosort"><input type="checkbox" class="pick-all" aria-label="Tout sélectionner (lignes visibles)"></th>{%- endmacro %}
 {% macro hosts_cell(n, hosts) -%}
   <td class="num" data-sort="{{ n }}">
     <details><summary>{{ n }}</summary><div class="hosts">{{ hosts | join(', ') }}</div></details>
   </td>
 {%- endmacro %}
-{% macro software_table(id, rows, with_match=True) %}
+{% macro software_table(id, rows, with_match=True, pickable=False) %}
   <div class="toolbar"><input type="search" placeholder="Filtrer…" data-filter="{{ id }}"> <span class="muted count" data-count="{{ id }}"></span></div>
   <div class="scroll"><table id="{{ id }}" class="sortable">
     <thead><tr>
-      <th>OS</th><th>Logiciel</th><th>Éditeur</th><th>Versions</th><th class="num">Postes</th>
+      {% if pickable %}{{ pick_th() }}{% endif %}<th>OS</th><th>Logiciel</th><th>Éditeur</th><th>Versions</th><th class="num">Postes</th>
       {% if with_match %}<th>Paquet proposé</th><th class="num">Score</th>{% endif %}
     </tr></thead>
     <tbody>
     {% for r in rows %}
       <tr data-os="{{ r.os }}">
+        {% if pickable %}{{ pick_cell(['import|' ~ r.os ~ '|' ~ r.match.package] if r.match else [], r.match.restricted if r.match else '') }}{% endif %}
         {{ os_cell(r.os) }}
         <td>{{ r.names | join('<br>' | safe) }}
           {% if r.other_os %}<div class="desc">paquet disponible pour : {% for o in r.other_os %}{{ OS_LABELS.get(o, o) }}{% if not loop.last %}, {% endif %}{% endfor %}</div>{% endif %}
@@ -120,6 +127,19 @@ pre.cmd { background: var(--surface); border: 1px solid var(--border); border-ra
 .osfilter button { font: inherit; font-size: 13px; padding: 4px 12px; border-radius: 99px; border: 1px solid var(--border);
                    background: var(--surface); color: var(--text); cursor: pointer; }
 .osfilter button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+td.pick, th.pick { width: 28px; padding-right: 0; }
+input.pick, input.pick-all { width: 16px; height: 16px; cursor: pointer; accent-color: var(--accent); }
+input.pick:disabled { cursor: not-allowed; opacity: .4; }
+tr.picked { background: var(--accent-soft) !important; }
+.selbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; background: var(--surface);
+          border-top: 1px solid var(--border); box-shadow: 0 -4px 16px rgba(0,0,0,.08); padding: 10px 16px; }
+.selbar-head { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; max-width: 1248px; margin: 0 auto; }
+.selbar .spacer { flex: 1; }
+.selbar pre.cmd { max-width: 1248px; margin: 8px auto 0; max-height: 30vh; overflow: auto; font-size: 12.5px; }
+.selbar button { font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 7px; cursor: pointer;
+                 border: 1px solid var(--accent); background: var(--accent); color: #fff; }
+.selbar button.ghost { background: transparent; color: var(--text); border-color: var(--border); }
+body.has-selection main { padding-bottom: 220px; }
 footer { margin-top: 32px; color: var(--muted); font-size: 12px; }
 </style>
 </head>
@@ -159,10 +179,11 @@ footer { margin-top: 32px; color: var(--muted); font-size: 12px; }
   <p class="intro">Paquets présents dans l'inventaire WAPT des postes et dont aucune version (quel que soit le préfixe) n'existe dans le dépôt du serveur pour l'OS du poste.</p>
   <div class="toolbar"><input type="search" placeholder="Filtrer…" data-filter="t-missing"> <span class="muted count" data-count="t-missing"></span></div>
   <div class="scroll"><table id="t-missing" class="sortable">
-    <thead><tr><th>OS</th><th>Paquet</th><th>Versions vues</th><th>Statut</th><th class="num">Postes</th><th>Disponible dans le store</th></tr></thead>
+    <thead><tr>{{ pick_th() }}<th>OS</th><th>Paquet</th><th>Versions vues</th><th>Statut</th><th class="num">Postes</th><th>Disponible dans le store</th></tr></thead>
     <tbody>
     {% for m in data.missing_packages %}
       <tr data-os="{{ m.os }}">
+        {{ pick_cell(['import|' ~ m.os ~ '|' ~ m.store.package] if m.store else [], m.store.restricted if m.store else '') }}
         {{ os_cell(m.os) }}
         <td>{% for p in m.packages_seen %}<code>{{ p }}</code>{% if not loop.last %}<br>{% endif %}{% endfor %}
           {% if m.other_os %}<div class="desc">présent dans le dépôt pour : {% for o in m.other_os %}{{ OS_LABELS.get(o, o) }}{% if not loop.last %}, {% endif %}{% endfor %}</div>{% endif %}</td>
@@ -179,7 +200,7 @@ footer { margin-top: 32px; color: var(--muted); font-size: 12px; }
 <section class="panel" id="import">
   <h2>Logiciels installés hors WAPT, avec un paquet disponible dans le store</h2>
   <p class="intro">Le rapprochement nom ↔ paquet est heuristique (score sur 100). Les correspondances fausses ou manquantes se corrigent avec la section <code>[mappings]</code> du fichier de configuration.</p>
-  {{ software_table('t-import', data.software_to_import) }}
+  {{ software_table('t-import', data.software_to_import, pickable=True) }}
 </section>
 
 <section class="panel" id="unmanaged">
@@ -198,10 +219,10 @@ footer { margin-top: 32px; color: var(--muted); font-size: 12px; }
   <h2>Paquets du dépôt plus anciens que le store</h2>
   <p class="intro">Le store propose une version plus récente, de même OS et de même architecture. Une « révision » est une nouvelle version du paquet pour le même logiciel (correctif du paquet). Mise à jour : <code>uv run wapt-analyzer import --update</code>.</p>
   <div class="scroll"><table id="t-outdated" class="sortable">
-    <thead><tr><th>OS</th><th>Type</th><th>Paquet local</th><th>Version locale</th><th>Paquet store</th></tr></thead>
+    <thead><tr>{{ pick_th() }}<th>OS</th><th>Type</th><th>Paquet local</th><th>Version locale</th><th>Paquet store</th></tr></thead>
     <tbody>
     {% for o in data.outdated %}
-      <tr data-os="{{ o.os }}">{{ os_cell(o.os) }}
+      <tr data-os="{{ o.os }}">{{ pick_cell(['update|' ~ o.os ~ '|' ~ o.local.base], o.store.restricted) }}{{ os_cell(o.os) }}
         <td>{% if o.kind == 'upstream' %}<span class="tag">nouvelle version</span>{% else %}<span class="tag">révision</span>{% endif %}</td>
         <td><code>{{ o.local.package }}</code></td><td>{{ o.local.version }}</td><td>{{ pkg_cell(o.store) }}</td></tr>
     {% endfor %}
@@ -213,10 +234,12 @@ footer { margin-top: 32px; color: var(--muted); font-size: 12px; }
   <h2>Liste des paquets du store suggérés à l'import</h2>
   <p class="intro">Union des paquets manquants disponibles dans le store et des logiciels à importer. Les paquets marqués <span class="tag restricted">Enterprise</span> sont réservés aux abonnés : <code>wapt-analyzer import</code> les ignore (voir <code>[store] restricted_licences</code>).</p>
   <div class="scroll"><table id="t-candidates" class="sortable">
-    <thead><tr><th>OS</th><th>Paquet</th><th>Version</th><th>Architecture</th><th class="num">Postes</th><th>Fichier</th></tr></thead>
+    <thead><tr>{{ pick_th() }}<th>OS</th><th>Paquet</th><th>Version</th><th>Architecture</th><th class="num">Postes</th><th>Fichier</th></tr></thead>
     <tbody>
     {% for c in candidates %}
       <tr data-os="{{ c.os | join(' ') }}">
+        {% set keys = [] %}{% for os in c.os %}{% set _ = keys.append('import|' ~ os ~ '|' ~ c.package) %}{% endfor %}
+        {{ pick_cell(keys, c.restricted) }}
         <td>{% for os in c.os %}<span class="os os-{{ os }}">{{ OS_LABELS.get(os, os) }}</span> {% endfor %}</td>
         <td><code>{{ c.package }}</code>{% if c.restricted %}<span class="tag restricted" title="Licence {{ c.restricted }} : téléchargement réservé aux abonnés">Enterprise</span>{% endif %}</td><td>{{ c.version }}</td><td>{{ c.architecture }}</td>
         <td class="num" data-sort="{{ c.host_count }}">{{ c.host_count }}</td>
@@ -226,6 +249,17 @@ footer { margin-top: 32px; color: var(--muted); font-size: 12px; }
     </tbody>
   </table></div>
 </section>
+
+<div id="selbar" class="selbar" hidden>
+  <div class="selbar-head">
+    <strong id="selcount"></strong>
+    <label><input type="checkbox" id="selapply"> ajouter <code>--apply</code></label>
+    <span class="spacer"></span>
+    <button type="button" id="selcopy">Copier la commande</button>
+    <button type="button" id="selclear" class="ghost">Tout désélectionner</button>
+  </div>
+  <pre id="selcmd" class="cmd"></pre>
+</div>
 
 <footer>{{ data.generator }} · {{ s.excluded_software_entries }} entrées d'inventaire exclues (mises à jour, pilotes, composants système…)</footer>
 </main>
@@ -267,8 +301,9 @@ footer { margin-top: 32px; color: var(--muted); font-size: 12px; }
   }));
   applyFilters();
 
-  document.querySelectorAll('table.sortable th').forEach((th, idx) => {
+  document.querySelectorAll('table.sortable th:not(.nosort)').forEach(th => {
     th.addEventListener('click', () => {
+      const idx = th.cellIndex;
       const table = th.closest('table');
       const asc = th.getAttribute('aria-sort') !== 'ascending';
       table.querySelectorAll('th').forEach(h => h.removeAttribute('aria-sort'));
@@ -281,6 +316,75 @@ footer { margin-top: 32px; color: var(--muted); font-size: 12px; }
       table.tBodies[0].append(...rows);
     });
   });
+
+  // Selection -> import command
+  const selected = new Set();
+  const picks = [...document.querySelectorAll('input.pick')];
+  const keysOf = (cb) => cb.dataset.keys.split(' ');
+  const quoteOs = (s) => [...s].sort().join(',');
+  const buildCommand = () => {
+    const imports = new Map(), updates = new Map();
+    [...selected].sort().forEach(k => {
+      const [mode, os, name] = k.split('|');
+      const map = mode === 'update' ? updates : imports;
+      if (!map.has(name)) map.set(name, new Set());
+      map.get(name).add(os);
+    });
+    const apply = document.getElementById('selapply').checked ? ' --apply' : '';
+    const lines = [];
+    // group package names sharing the same OS set into one command
+    const group = (map) => {
+      const byOs = new Map();
+      map.forEach((oses, name) => {
+        const k = quoteOs(oses);
+        if (!byOs.has(k)) byOs.set(k, []);
+        byOs.get(k).push(name);
+      });
+      return byOs;
+    };
+    group(imports).forEach((names, os) => lines.push(`uv run wapt-analyzer import --os ${os} ${names.join(' ')}${apply}`));
+    group(updates).forEach((names, os) => lines.push(`uv run wapt-analyzer import --update --os ${os} ${names.join(' ')}${apply}`));
+    return lines.join('\n');
+  };
+  const refresh = () => {
+    picks.forEach(cb => {
+      cb.checked = keysOf(cb).every(k => selected.has(k));
+      cb.closest('tr').classList.toggle('picked', cb.checked);
+    });
+    document.querySelectorAll('input.pick-all').forEach(all => {
+      const boxes = [...all.closest('table').tBodies[0].querySelectorAll('tr:not([hidden]) input.pick:not(:disabled)')];
+      all.checked = boxes.length > 0 && boxes.every(b => b.checked);
+      all.indeterminate = !all.checked && boxes.some(b => b.checked);
+    });
+    const n = new Set([...selected].map(k => k.split('|').slice(0, 1).concat(k.split('|')[2]).join('|'))).size;
+    const bar = document.getElementById('selbar');
+    bar.hidden = selected.size === 0;
+    document.body.classList.toggle('has-selection', selected.size > 0);
+    document.getElementById('selcount').textContent = `${n} paquet${n > 1 ? 's' : ''} sélectionné${n > 1 ? 's' : ''}`;
+    document.getElementById('selcmd').textContent = buildCommand();
+  };
+  const toggle = (cb, on) => keysOf(cb).forEach(k => on ? selected.add(k) : selected.delete(k));
+  picks.forEach(cb => cb.addEventListener('change', () => { toggle(cb, cb.checked); refresh(); }));
+  document.querySelectorAll('input.pick-all').forEach(all => all.addEventListener('change', () => {
+    all.closest('table').tBodies[0].querySelectorAll('tr:not([hidden]) input.pick:not(:disabled)')
+      .forEach(cb => toggle(cb, all.checked));
+    refresh();
+  }));
+  document.getElementById('selapply').addEventListener('change', refresh);
+  document.getElementById('selclear').addEventListener('click', () => { selected.clear(); refresh(); });
+  document.getElementById('selcopy').addEventListener('click', async (e) => {
+    const text = buildCommand();
+    try { await navigator.clipboard.writeText(text); }
+    catch {
+      const range = document.createRange();
+      range.selectNodeContents(document.getElementById('selcmd'));
+      const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range);
+      document.execCommand('copy');
+    }
+    e.target.textContent = 'Copié ✓';
+    setTimeout(() => { e.target.textContent = 'Copier la commande'; }, 1500);
+  });
+  refresh();
 })();
 </script>
 </body>

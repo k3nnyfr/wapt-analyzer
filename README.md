@@ -13,6 +13,8 @@ Il produit un rapport HTML autonome (avec export JSON/CSV optionnel) contenant :
 | **Mises à jour** | Paquets du dépôt dont la version amont est plus ancienne que celle du store |
 | **Liste d'import** | Liste consolidée des paquets du store à importer |
 
+Dans le rapport, chaque paquet proposé (onglets paquets manquants, à importer, mises à jour, liste d'import) a une case à cocher. Une barre en bas de page affiche la commande `uv run wapt-analyzer import …` correspondant à la sélection, regroupée par OS, prête à copier. Les paquets réservés aux abonnés ne sont pas sélectionnables.
+
 La commande `report` ne fait que **lire**. La commande `import` importe ensuite les paquets choisis depuis le store : elle les re-signe avec **votre** clé et les envoie sur votre serveur.
 
 ## Installation

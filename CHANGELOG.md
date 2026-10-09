@@ -2,7 +2,11 @@
 
 ## [Unreleased]
 
+### Added
+- Rapport HTML : cases à cocher sur les paquets proposés et barre de sélection générant la commande `import` (regroupée par OS, option `--apply`), synchronisées entre les onglets.
+
 ### Fixed
+- Rapport HTML : le tri d'un tableau utilisait l'index de colonne de toute la page au lieu de celui du tableau.
 - Rapprochement logiciel ↔ paquet : les éditions (Office 2016 / 2019 / 2024, Visual C++ 2005 / v14…) ne sont plus confondues ; le rapport liste les autres éditions disponibles quand celle installée n'existe pas.
 - Nom d'éditeur générique en tête (« Microsoft … ») essayé sans l'éditeur : .NET Framework, Silverlight, VSTA, Office LTSC désormais reconnus.
 

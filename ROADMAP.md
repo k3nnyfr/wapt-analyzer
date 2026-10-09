@@ -19,7 +19,7 @@
 
 ## v0.3 — Confort au quotidien
 - [x] `import --update` : mise à jour des paquets en retard sur le store
-- [ ] Cases à cocher dans le rapport HTML pour générer la commande d'import
+- [x] Cases à cocher dans le rapport HTML pour générer la commande d'import
 - [ ] Liste d'exclusions OEM optionnelle (HP, Canon, Epson, Intel…)
 - [x] Rapprochement tenant compte des éditions (Office 2016 / 2024, Visual C++…)
 
