@@ -62,6 +62,8 @@ def _software(group: SoftwareGroup, lang: str, r: tuple[str, ...]) -> dict:
         "score": round(group.score, 1),
         "alternatives": [a.package for a in group.alternatives],
         "other_os": group.other_os,
+        "editions": sorted(group.editions),
+        "other_editions": [e.package for e in group.other_editions],
     }
 
 

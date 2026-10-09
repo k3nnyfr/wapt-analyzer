@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+- Rapprochement logiciel ↔ paquet : les éditions (Office 2016 / 2019 / 2024, Visual C++ 2005 / v14…) ne sont plus confondues ; le rapport liste les autres éditions disponibles quand celle installée n'existe pas.
+- Nom d'éditeur générique en tête (« Microsoft … ») essayé sans l'éditeur : .NET Framework, Silverlight, VSTA, Office LTSC désormais reconnus.
+
 ## [0.2.0] - 2026-10-09
 
 ### Added

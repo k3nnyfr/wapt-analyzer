@@ -36,7 +36,8 @@
       <tr data-os="{{ r.os }}">
         {{ os_cell(r.os) }}
         <td>{{ r.names | join('<br>' | safe) }}
-          {% if r.other_os %}<div class="desc">paquet disponible pour : {% for o in r.other_os %}{{ OS_LABELS.get(o, o) }}{% if not loop.last %}, {% endif %}{% endfor %}</div>{% endif %}</td>
+          {% if r.other_os %}<div class="desc">paquet disponible pour : {% for o in r.other_os %}{{ OS_LABELS.get(o, o) }}{% if not loop.last %}, {% endif %}{% endfor %}</div>{% endif %}
+          {% if r.other_editions %}<div class="desc">autres éditions disponibles : {% for e in r.other_editions %}<code>{{ e }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</div>{% endif %}</td>
         <td>{{ r.publishers | join(', ') }}</td>
         <td class="small">{{ r.versions[:4] | join(', ') }}{% if r.versions | length > 4 %} …{% endif %}</td>
         {{ hosts_cell(r.host_count, r.hosts) }}

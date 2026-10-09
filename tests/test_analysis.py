@@ -180,3 +180,40 @@ def test_find_updates_matches_os_and_architecture():
         ("windows", "tsi-vlc"): ("3.0.24-13", "upstream"),
         ("macos", "tsi-vlc"): ("3.0.24-16", "upstream"),   # local "all" accepts any architecture
     }
+
+
+def test_editions():
+    from wapt_analyzer.analysis import editions, editions_compatible
+
+    assert editions("Microsoft Office Professionnel Plus 2016 - fr-fr") == {"2016"}
+    assert editions("Microsoft 365 Apps for enterprise - en-us") == {"365"}
+    assert editions("Microsoft Visual C++ v14 Redistributable (x64) - 14.50.35719") == {"14"}
+    assert editions("vcredist2015-2022") == {"2015", "2022"}
+    assert editions("Java 8 Update 311") == {"8"}             # update number is not an edition
+    assert editions("Mp3tag v3.33.1") == set()                 # dotted version
+    assert editions("OpenVPN 2.5.7-I602 amd64") == set()       # build code
+    assert editions("Notepad++ (64-bit x64)") == set()         # architecture
+    assert editions_compatible(frozenset({"14"}), frozenset())  # "TeamViewer 14" -> tis-teamviewer
+    assert not editions_compatible(frozenset({"2016"}), frozenset({"2024"}))
+
+
+def test_office_editions_are_not_mixed():
+    store = index_by_family([
+        pkg("tis-microsoft-office-2019-professional", name="Office Professional Plus 2019"),
+        pkg("tis-microsoft-office-2021-professional", name="Office LTSC Professional Plus 2021"),
+        pkg("tis-microsoft-office-2024-professional", name="Office LTSC Professional Plus 2024"),
+        pkg("tis-teamviewer", name="TeamViewer"),
+    ])
+    host = Host(uuid="U9", name="pc9", os_name="Windows 11 Pro", installed_softwares=[
+        soft("Microsoft Office Professional Plus 2019 - fr-fr"),
+        soft("Microsoft Office Professionnel Plus 2016 - fr-fr"),
+        soft("Microsoft Office LTSC Professional Plus 2021"),
+        soft("TeamViewer 14"),
+    ])
+    result = analyze(index_by_family([]), store, [host])
+    matched = {g.editions: g.match.package for g in result.software_to_import if g.key.startswith("microsoft office")}
+    assert matched == {frozenset({"2019"}): "tis-microsoft-office-2019-professional",
+                       frozenset({"2021"}): "tis-microsoft-office-2021-professional"}
+    office_2016 = next(g for g in result.software_unmatched if g.editions == {"2016"})
+    assert {e.package for e in office_2016.other_editions} >= {"tis-microsoft-office-2024-professional"}
+    assert any(g.match.package == "tis-teamviewer" for g in result.software_to_import)

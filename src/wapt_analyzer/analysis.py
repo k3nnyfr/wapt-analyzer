@@ -36,6 +36,36 @@ def normalize(name: str) -> str:
     return re.sub(r"\s+", " ", text).strip(" -")
 
 
+_EDITION_NOISE_RE = re.compile("|".join([
+    r"\(.*?\)",                                          # "(x64 fr)", "(64-bit)"
+    r"(?:\b|(?<=v))\d+(?:[.,]\d+)+[a-z]?\b",                # dotted versions "24.08", "v3.33.1"
+    r"\b(?:x64|x86|amd64|arm64|win64|win32|64[ -]?bits?|32[ -]?bits?)\b",
+    r"\b(?:update|build|release|version|sp|service pack|rev)\s*\d+\b",  # "Update 311", "SP3"
+    r"\b[a-z]{2}-[a-z]{2}\b",                             # fr-fr
+]), re.IGNORECASE)
+# a standalone number, or one glued after "v" or a word ("v14", "teamviewer11", "vcredist2015");
+# not after a single other letter, which is usually a build code ("I602")
+_EDITION_RE = re.compile(r"(?:\b|(?<=\bv)|(?<=[a-z]{3}))(\d{1,4})\b")
+
+
+def editions(text: str) -> frozenset[str]:
+    """Numbers identifying a product edition: "Office 2016" -> {2016}, "Microsoft 365" -> {365}.
+
+    Dotted versions, architectures and update/build numbers are not editions.
+    """
+    cleaned = _EDITION_NOISE_RE.sub(" ", (text or "").lower()).replace("-", " ").replace("_", " ")
+    return frozenset(str(int(n)) for n in _EDITION_RE.findall(cleaned))
+
+
+def entry_editions(entry: PackageEntry) -> frozenset[str]:
+    return editions(entry.name) | editions(entry.base)
+
+
+def editions_compatible(software: frozenset[str], package: frozenset[str]) -> bool:
+    """Incompatible only when both carry an edition number and none is shared."""
+    return not software or not package or bool(software & package)
+
+
 def _as_list(value) -> list[str]:
     """Inventory fields may come as a list, a JSON string or a Python repr."""
     if not value:
@@ -82,6 +112,8 @@ class SoftwareGroup:
     score: float = 0.0
     alternatives: list[PackageEntry] = field(default_factory=list)
     other_os: list[str] = field(default_factory=list)     # unmatched here, but a store package exists for these OS
+    editions: frozenset[str] = frozenset()                 # edition numbers of the software ("2016")
+    other_editions: list[PackageEntry] = field(default_factory=list)  # packages rejected: other edition
     # host name -> package bases installed by WAPT on it
     host_bases: dict[str, set[str]] = field(default_factory=dict, repr=False)
 
@@ -151,16 +183,26 @@ class Matcher:
         self.alias_tokens = {alias: set(alias.split()) for alias in self.by_alias}
         self.choices = list(self.by_alias)
 
-    def exact(self, key: str) -> list[PackageEntry]:
+    def _compatible(self, candidates: list[PackageEntry], eds: frozenset[str],
+                    rejected: list[PackageEntry] | None) -> list[PackageEntry]:
+        ok = [c for c in candidates if editions_compatible(eds, entry_editions(c))]
+        if rejected is not None:
+            rejected.extend(c for c in candidates if c not in ok and c not in rejected)
+        return ok
+
+    def exact(self, key: str, eds: frozenset[str] = frozenset(),
+              rejected: list[PackageEntry] | None = None) -> list[PackageEntry]:
         """Exact match on the alias, its compact form, or without a trailing major version."""
         for candidate in (key, re.sub(r"\s+\d{1,3}$", "", key)):
-            if candidate in self.by_alias:
-                return self.by_alias[candidate]
-            if _compact(candidate) in self.by_compact:
-                return self.by_compact[_compact(candidate)]
+            for found in (self.by_alias.get(candidate), self.by_compact.get(_compact(candidate))):
+                if found:
+                    ok = self._compatible(found, eds, rejected)
+                    if ok:
+                        return ok
         return []
 
-    def fuzzy(self, key: str, publisher: str = "") -> tuple[list[PackageEntry], float]:
+    def fuzzy(self, key: str, publisher: str = "", eds: frozenset[str] = frozenset(),
+              rejected: list[PackageEntry] | None = None) -> tuple[list[PackageEntry], float]:
         """Best approximate match: subset of a package name, or token similarity."""
         if len(key) < 5 or not self.choices:
             return [], 0.0
@@ -173,19 +215,22 @@ class Matcher:
                        if tokens < toks and not (toks - tokens) & ACTION_WORDS]
             if subsets:
                 subsets.sort(key=lambda a: (len(a), a))
-                candidates = [e for a in subsets for e in self.by_alias[a]]
-                best = (list(dict.fromkeys(candidates)), 90.0)
+                candidates = list(dict.fromkeys(e for a in subsets for e in self.by_alias[a]))
+                candidates = self._compatible(candidates, eds, rejected)
+                if candidates:
+                    best = (candidates, 90.0)
 
-        found = process.extractOne(key, self.choices, scorer=fuzz.token_sort_ratio,
-                                   score_cutoff=self.threshold - 5)
-        if found:
-            alias, score, _ = found
-            candidates = self.by_alias[alias]
+        for alias, score, _ in process.extract(key, self.choices, scorer=fuzz.token_sort_ratio,
+                                               score_cutoff=self.threshold - 5, limit=10):
+            candidates = self._compatible(self.by_alias[alias], eds, rejected)
+            if not candidates:
+                continue  # other edition: try the next closest name
             editor = normalize(candidates[0].get("editor"))
             if publisher and editor and set(normalize(publisher).split()) & set(editor.split()):
                 score = min(100.0, score + 5)
             if score > best[1]:
                 best = (candidates, score)
+            break
         if best[1] < self.threshold:
             return [], best[1]
         return best
@@ -200,15 +245,25 @@ def _by_base(entries: dict[str, PackageEntry], preferred_prefix: str = "") -> di
     return result
 
 
-def _best_match(key: str, publisher: str, repo_matcher: Matcher, store_matcher: Matcher):
+def _key_variants(key: str) -> list[str]:
+    """The key, and the key without a leading vendor name ("microsoft office x" -> "office x")."""
+    first, _, rest = key.partition(" ")
+    return [key, rest] if first in GENERIC_WORDS and rest else [key]
+
+
+def _best_match(key: str, publisher: str, repo_matcher: Matcher, store_matcher: Matcher,
+                eds: frozenset[str] = frozenset(), rejected: list[PackageEntry] | None = None):
     """Yield at most one (source, candidates, score): exact matches first, local repository first."""
+    variants = _key_variants(key)
     for source, matcher in (("local", repo_matcher), ("store", store_matcher)):
-        candidates = matcher.exact(key)
-        if candidates:
-            yield source, candidates, 100.0
-            return
-    results = [(source, *matcher.fuzzy(key, publisher))
-               for source, matcher in (("local", repo_matcher), ("store", store_matcher))]
+        for variant in variants:
+            candidates = matcher.exact(variant, eds, rejected)
+            if candidates:
+                yield source, candidates, 100.0
+                return
+    results = [(source, *matcher.fuzzy(variant, publisher, eds, rejected))
+               for source, matcher in (("local", repo_matcher), ("store", store_matcher))
+               for variant in variants]
     results = [r for r in results if r[1]]
     if results:
         yield max(results, key=lambda r: r[2])  # max keeps the first (local) on ties
@@ -316,7 +371,7 @@ def analyze(
     key_re = [re.compile(p, re.IGNORECASE) for p in (exclude_keys or [])]
     publisher_re = [re.compile(p, re.IGNORECASE) for p in (exclude_publishers or [])]
     mapping_re = [(re.compile(k, re.IGNORECASE), v) for k, v in (mappings or {}).items()]
-    groups: dict[tuple[str, str], SoftwareGroup] = {}
+    groups: dict[tuple[str, str, frozenset[str]], SoftwareGroup] = {}
     excluded = 0
     for host in hosts:
         fam = host.os_family
@@ -334,7 +389,8 @@ def analyze(
             key = normalize(sname)
             if not key:
                 continue
-            group = groups.setdefault((fam, key), SoftwareGroup(key=key, family=fam))
+            eds = editions(sname)
+            group = groups.setdefault((fam, key, eds), SoftwareGroup(key=key, family=fam, editions=eds))
             group.names.add(sname)
             if publisher:
                 group.publishers.add(publisher)
@@ -351,7 +407,7 @@ def analyze(
         for fam in set(store) | set(families)
     }
     to_import, unmanaged, unmatched = [], [], []
-    for (fam, _), group in groups.items():
+    for (fam, _, _), group in groups.items():
         if not group.hosts:
             continue  # always installed by WAPT
         name = sorted(group.names)[0]
@@ -367,11 +423,15 @@ def analyze(
                 log.warning("Mapping %r -> %r: no %s package in repo or store", name, mapped, fam)
         else:
             repo_matcher, store_matcher = all_matchers[fam]
-            for source, candidates, score in _best_match(group.key, publisher, repo_matcher, store_matcher):
+            rejected: list[PackageEntry] = []
+            for source, candidates, score in _best_match(group.key, publisher, repo_matcher, store_matcher,
+                                                         group.editions, rejected):
                 group.match, group.alternatives = candidates[0], candidates[1:]
                 group.match_source, group.score = source, score
             if group.match is None:
-                group.other_os = sorted(f for f, (_, sm) in all_matchers.items() if f != fam and sm.exact(group.key))
+                group.other_editions = sorted(set(rejected), key=lambda e: e.package)
+                group.other_os = sorted(f for f, (_, sm) in all_matchers.items()
+                                        if f != fam and sm.exact(group.key, group.editions))
 
         if group.match is not None:
             # macOS / Linux packages rarely declare uninstall keys: the software counts as
