@@ -164,14 +164,17 @@ def _read_secret_file(path: str) -> str:
 
 
 def resolve_key_password(cfg: dict) -> str:
-    """Private key passphrase, asked once: $WAPT_KEY_PASSWORD, key_password_file, or prompt."""
+    """Private key passphrase, asked once: $WAPT_KEY_PASSWORD, a protected passphrase file
+    (signing.key_password_file or $WAPT_KEY_PASSWORD_FILE), then an interactive prompt."""
     if os.environ.get("WAPT_KEY_PASSWORD") is not None:
         return os.environ["WAPT_KEY_PASSWORD"]
-    if cfg["signing"].get("key_password_file"):
-        return _read_secret_file(cfg["signing"]["key_password_file"])
+    key_pw_file = cfg["signing"].get("key_password_file") or os.environ.get("WAPT_KEY_PASSWORD_FILE")
+    if key_pw_file:
+        return _read_secret_file(key_pw_file)
     if sys.stdin.isatty():
         return getpass.getpass(f"Passphrase for {cfg['signing']['private_key']}: ")
-    raise RuntimeError("No key passphrase: set WAPT_KEY_PASSWORD, signing.key_password_file or run interactively")
+    raise RuntimeError("No key passphrase: set WAPT_KEY_PASSWORD, signing.key_password_file "
+                       "(or WAPT_KEY_PASSWORD_FILE) or run interactively")
 
 
 def resolve_password(cfg: dict) -> str:

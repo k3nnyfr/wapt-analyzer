@@ -1,8 +1,30 @@
 # wapt-analyzer
 
-Outil en ligne de commande qui compare le dépôt de paquets d'un serveur [WAPT](https://www.wapt.fr), le store public Tranquil IT et l'inventaire des postes, pour **suggérer les paquets manquants**.
+Outil en ligne de commande pour entretenir le dépôt de paquets d'un serveur [WAPT](https://www.wapt.fr). Il compare ce dépôt, le store public Tranquil IT et l'inventaire des postes, puis aide à combler les écarts.
 
-Il produit un rapport HTML autonome (avec export JSON/CSV optionnel) contenant :
+| Commande | Rôle | Écrit sur le serveur ? |
+|---|---|---|
+| [`report`](#le-rapport) | Analyse le parc et produit un rapport : paquets manquants, logiciels installés hors WAPT, mises à jour disponibles | Non, lecture seule |
+| [`import`](#importer-des-paquets-depuis-le-store) | Importe des paquets du store : vérification de la signature d'origine, renommage à votre préfixe, signature avec **votre** clé, upload | Oui, avec `--apply` |
+| [`import --update`](#mettre-à-jour-les-paquets-du-dépôt) | Met à jour les paquets de votre dépôt pour lesquels le store propose une version plus récente | Oui, avec `--apply` |
+| [`cleanup`](#nettoyer-le-dépôt) | Supprime les anciennes versions qu'aucun poste ne peut plus installer | Oui, avec `--apply` |
+
+Les commandes qui modifient le dépôt fonctionnent **en simulation par défaut** : elles affichent leur plan et ne font rien tant que `--apply` n'est pas passé.
+
+Un cycle d'entretien typique :
+
+```bash
+uv run wapt-analyzer report --json wapt-report.json          # 1. analyser, ouvrir wapt-report.html
+uv run wapt-analyzer import --from-report wapt-report.json   # 2. vérifier le plan d'import…
+uv run wapt-analyzer import --from-report wapt-report.json --apply   # … puis l'exécuter
+uv run wapt-analyzer import --update --apply --cleanup       # 3. mettre à jour et nettoyer les anciennes versions
+```
+
+Ces exemples supposent le serveur, le compte et le préfixe renseignés dans le [fichier de configuration](#configuration).
+
+## Le rapport
+
+`report` produit un rapport HTML autonome (avec export JSON/CSV optionnel) contenant :
 
 | Onglet | Contenu |
 |---|---|
@@ -13,9 +35,7 @@ Il produit un rapport HTML autonome (avec export JSON/CSV optionnel) contenant :
 | **Mises à jour** | Paquets du dépôt dont la version amont est plus ancienne que celle du store |
 | **Liste d'import** | Liste consolidée des paquets du store à importer |
 
-Dans le rapport, chaque paquet proposé (onglets paquets manquants, à importer, mises à jour, liste d'import) a une case à cocher. Une barre en bas de page affiche la commande `uv run wapt-analyzer import …` correspondant à la sélection, regroupée par OS, prête à copier. Les paquets réservés aux abonnés ne sont pas sélectionnables.
-
-La commande `report` ne fait que **lire**. La commande `import` importe ensuite les paquets choisis depuis le store : elle les re-signe avec **votre** clé et les envoie sur votre serveur.
+Le rapport fait le lien avec `import` : chaque paquet proposé (onglets paquets manquants, à importer, mises à jour, liste d'import) a une case à cocher, et une barre en bas de page affiche la commande `uv run wapt-analyzer import …` correspondant à la sélection, regroupée par OS, prête à copier (avec ou sans `--apply`). Les paquets réservés aux abonnés ne sont pas sélectionnables.
 
 ## Installation
 
@@ -62,7 +82,7 @@ Options principales de `wapt-analyzer report` :
 
 Toutes les options peuvent être placées dans un fichier TOML : `./wapt-analyzer.toml`, `~/.config/wapt-analyzer/config.toml` ou le fichier passé avec `-c`. Voir [`wapt-analyzer.example.toml`](wapt-analyzer.example.toml).
 
-Ordre de priorité : valeurs par défaut < fichier < variables d'environnement (`WAPT_SERVER_URL`, `WAPT_USER`, `WAPT_PREFIX`, `WAPT_PASSWORD`, `WAPT_PASSWORD_FILE`) < ligne de commande.
+Ordre de priorité : valeurs par défaut < fichier < variables d'environnement (`WAPT_SERVER_URL`, `WAPT_USER`, `WAPT_PREFIX`, `WAPT_PASSWORD`, `WAPT_PASSWORD_FILE`, `WAPT_KEY_PASSWORD`, `WAPT_KEY_PASSWORD_FILE`) < ligne de commande.
 
 ### Ajuster le rapprochement
 
@@ -104,17 +124,21 @@ Les autres sont traités comme installés hors WAPT.
 
 ## Importer des paquets depuis le store
 
+Trois façons de choisir les paquets à importer :
+
 ```bash
-uv run wapt-analyzer import firefox-esr tis-keepassxc     # simulation : affiche le plan
-uv run wapt-analyzer import --from-report wapt-report.json --only gimp,libreoffice-fresh
-uv run wapt-analyzer import firefox-esr --apply           # télécharge, signe, envoie
-uv run wapt-analyzer import --update                      # met à jour les paquets en retard sur le store
-uv run wapt-analyzer import --update firefox chrome --apply
+uv run wapt-analyzer import firefox-esr tis-keepassxc     # par nom, avec ou sans préfixe du store
+uv run wapt-analyzer import --from-report wapt-report.json --only gimp,libreoffice-fresh   # candidats d'un rapport JSON
+uv run wapt-analyzer import --update                      # paquets du dépôt en retard sur le store
 ```
 
-`--update` reprend la liste de l'onglet « Mises à jour » du rapport : les paquets de votre dépôt pour lesquels le store propose une version plus récente. La comparaison se fait pour le même OS et la même architecture (un paquet local `all` accepte toutes les architectures). Elle porte sur la version complète, donc une nouvelle révision du paquet (`-110` → `-111`) compte aussi. Les noms passés en argument, ou via `--only`, restreignent la liste. `[import] update_exclude` protège vos paquets maison qui portent le même nom qu'un paquet du store.
+Sans `--apply`, la commande affiche seulement le plan : paquets retenus, dépendances ajoutées, paquets ignorés et pourquoi, taille à télécharger. Avec `--apply`, elle demande confirmation (sauf `-y`) puis exécute :
 
-Pour chaque paquet, avec `--apply` :
+```bash
+uv run wapt-analyzer import firefox-esr --apply           # télécharge, vérifie, signe, envoie
+```
+
+Pour chaque paquet :
 
 1. **Téléchargement** depuis le store, avec contrôle MD5 par rapport à l'index.
 2. **Vérification** de la signature d'origine : fichiers et métadonnées (`--verify full`, par défaut) ou métadonnées seulement (`--verify control`). Voir [Source et confiance](#source-et-confiance).
@@ -127,8 +151,47 @@ Dans un terminal, chaque phase (téléchargement, signature, upload) affiche une
 Comportement par défaut :
 - les dépendances absentes de votre dépôt sont ajoutées au plan, sauf avec `--no-deps` ;
 - les paquets déjà présents en version égale ou plus récente sont ignorés, sauf avec `--force` ;
-- `--no-upload` produit seulement les paquets signés, dans `--output-dir`.
+- les paquets de l'agent lui-même (`waptupgrade`, `waptsetup`, `waptagent`, `waptserver`) ne sont jamais importés (`[import] exclude`) ;
 - les paquets dont la licence contient `wapt_enterprise` ne sont téléchargeables qu'avec un abonnement. Ils sont signalés par un badge « Enterprise » dans le rapport et ignorés par `import`. Si vous avez un abonnement, mettez `[store] restricted_licences = []`.
+
+Options principales de `wapt-analyzer import` :
+
+| Option | Rôle |
+|---|---|
+| `PAQUET…` | Paquets à importer (`firefox` ou `tis-firefox`) ; avec `--update`, restreint la mise à jour à ces paquets |
+| `--from-report JSON`, `--only` | Importe les candidats d'un rapport JSON, éventuellement filtrés |
+| `--update` | Met à jour les paquets du dépôt en retard sur le store (voir ci-dessous) |
+| `--apply`, `-y` | Exécute réellement l'import ; `-y` saute la confirmation |
+| `--cleanup` | Après l'upload, supprime les versions remplacées par celles importées (voir [Nettoyer le dépôt](#nettoyer-le-dépôt)) |
+| `--no-deps`, `--force` | Ignore les dépendances ; importe même si le dépôt a déjà la version |
+| `--no-upload`, `--output-dir` | Signe sans envoyer ; dossier des paquets signés |
+| `--certificate`, `--private-key`, `--key-password-file` | Clé de signature (voir plus bas) |
+| `--set-maturity` | Maturité des paquets importés (défaut : celle du store) |
+| `--verify`, `--trusted-cert`, `--trusted-fingerprint` | Vérification de la source (voir [Source et confiance](#source-et-confiance)) |
+| `--wapt-python` | `waptpython` à utiliser (défaut : détection automatique) |
+
+Les options de `report` concernant le serveur, le dépôt, le store et les filtres (`--server`, `--prefix`, `--store-url`, `--os`, `--arch`…) s'appliquent aussi.
+
+### Mettre à jour les paquets du dépôt
+
+```bash
+uv run wapt-analyzer import --update                       # plan : paquets en retard sur le store
+uv run wapt-analyzer import --update firefox chrome --apply
+uv run wapt-analyzer import --update --apply --cleanup     # puis supprime les versions remplacées
+```
+
+`--update` reprend la liste de l'onglet « Mises à jour » du rapport : les paquets de votre dépôt pour lesquels le store propose une version plus récente. La comparaison se fait pour le même OS et la même architecture (un paquet local `all` accepte toutes les architectures). Elle porte sur la version complète, donc une nouvelle révision du paquet (`-110` → `-111`) compte aussi. Les noms passés en argument, ou via `--only`, restreignent la liste.
+
+Les paquets mis à jour passent par les mêmes étapes qu'un import : vérification, renommage, signature avec votre clé, upload.
+
+`[import] update_exclude` protège vos paquets maison qui portent le même nom qu'un paquet du store :
+
+```toml
+[import]
+update_exclude = ["vcredist"]   # nom sans préfixe
+```
+
+### Signature
 
 La signature s'appuie sur l'implémentation de référence de WAPT (`waptpackage.sign_package`, comme `wapt-signpackages`), exécutée par le `waptpython` d'un agent WAPT installé :
 - `/opt/wapt` sous Linux ;
@@ -145,7 +208,7 @@ certificate = "/chemin/vers/moncert.crt"
 private_key = "/chemin/vers/moncert.pem"   # défaut : même nom en .pem
 ```
 
-Ordre de recherche de la passphrase : `$WAPT_KEY_PASSWORD`, puis `key_password_file` (chmod 600), puis saisie interactive.
+Ordre de recherche de la passphrase : `$WAPT_KEY_PASSWORD`, puis le fichier `key_password_file` (ou `--key-password-file`, ou `$WAPT_KEY_PASSWORD_FILE`), puis saisie interactive. Comme pour le mot de passe du serveur, le fichier doit être en `chmod 600`, sinon il est refusé. Rangez-le hors de tout dossier synchronisé ou sauvegardé avec la clé : la passphrase n'a plus d'intérêt si elle voyage à côté de la clé chiffrée.
 
 ### Source et confiance
 
@@ -182,6 +245,9 @@ uv run wapt-analyzer cleanup firefox --apply    # seulement les anciennes versio
 uv run wapt-analyzer import --update --apply --cleanup   # mise à jour puis nettoyage dans la foulée
 ```
 
+La simulation liste chaque version, son OS, son architecture, la version qui la remplace, et l'espace libéré. Les versions conservées malgré tout sont affichées avec leur raison (dépendance à version précise, exclusion, préfixe).
+
+Avec `import --cleanup`, le nettoyage ne porte que sur les paquets qui viennent d'être envoyés, à partir de l'index du dépôt rechargé après l'upload. Il demande la même confirmation, sauf avec `-y`.
 Les agents WAPT installent la version la plus élevée parmi celles qui correspondent à leur OS, leur architecture, leur locale, leur maturité et leur version d'OS. Une version n'est donc supprimée que si une version plus récente du même paquet la **couvre entièrement** :
 
 - même maturité ;
@@ -198,6 +264,19 @@ Garde-fous :
 - `--keep N` conserve en plus les N versions précédentes, pour pouvoir revenir en arrière ;
 - `[cleanup] exclude` protège des paquets ;
 - les suppressions sont définitives et demandent une confirmation, sauf avec `-y`.
+
+```toml
+[cleanup]
+keep = 1                      # garde aussi la version précédente
+exclude = ["waptupgrade"]     # nom sans préfixe
+```
+
+| Option | Rôle |
+|---|---|
+| `PAQUET…` | Limite le nettoyage à ces paquets (`firefox` ou `tsi-firefox`) |
+| `--apply`, `-y` | Supprime réellement ; `-y` saute la confirmation |
+| `--keep N` | Conserve en plus les N versions précédentes |
+| `--all-prefixes` | Traite aussi les paquets qui ne sont pas à votre préfixe |
 
 ## Limites
 

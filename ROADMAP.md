@@ -30,6 +30,10 @@
 - [x] Simulation par défaut, `--apply` pour supprimer, option pour conserver les N versions précédentes (retour arrière)
 - [x] Enchaînement possible après une mise à jour : `import --update --cleanup`
 
+## v0.4.1 — Confort
+- [x] Fichier de passphrase de la clé de signature via `$WAPT_KEY_PASSWORD_FILE`
+- [x] README : import, mises à jour et nettoyage mieux documentés
+
 ## v0.5 — Authentification
 - [ ] Authentification MFA (TOTP)
 - [ ] Authentification par certificat client

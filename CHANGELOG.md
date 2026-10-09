@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.1] - 2026-10-10
+
+### Added
+- Variable d'environnement `WAPT_KEY_PASSWORD_FILE` pour le fichier de passphrase de la clé de signature, en complément de `[signing] key_password_file` et `--key-password-file` (même contrôle `chmod 600` que le mot de passe du serveur).
+
+### Changed
+- README : tableau des commandes et cycle d'entretien type (`report` → `import` → `import --update --cleanup`), tableaux d'options de `import` et `cleanup`, section dédiée à `import --update`.
+
 ## [0.4.0] - 2026-10-10
 
 ### Added
