@@ -24,7 +24,7 @@
 - [x] Rapprochement tenant compte des éditions (Office 2016 / 2024, Visual C++…)
 - [x] Import fiable des gros paquets sous WSL (dossier de travail sur le disque Windows)
 
-## v0.4 — Maintenance du dépôt
+## v0.4.0 — Maintenance du dépôt
 - [x] Mode `cleanup` post-import : supprimer du dépôt les paquets qui ne sont plus la dernière version disponible (par paquet, OS, architecture, locale et maturité), et qui ne seront donc plus proposés aux postes
 - [x] Vérification avant suppression : aucune dépendance ne cible explicitement une version précise (`tsi-foo(=1.2-3)`)
 - [x] Simulation par défaut, `--apply` pour supprimer, option pour conserver les N versions précédentes (retour arrière)
