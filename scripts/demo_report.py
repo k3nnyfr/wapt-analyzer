@@ -1,11 +1,8 @@
 """Build a demo report from fictitious hosts and repository, against the public Tranquil IT store index.
 
-Used for the README screenshot: no real host or server appears in the output.
+Used for the documentation screenshots (scripts/screenshots.py): no real host or server appears in the output.
 
     uv run python scripts/demo_report.py [-o demo-report.html] [--offline]
-
-docs/report.png shows the "À importer" tab (demo-report.html#import) with its first four rows checked,
-captured with headless Chrome at 1400x1000.
 """
 
 from __future__ import annotations
@@ -17,6 +14,7 @@ from pathlib import Path
 from wapt_analyzer.analysis import analyze, find_updates
 from wapt_analyzer.config import DEFAULTS
 from wapt_analyzer.fetch import Cache, fetch_cached
+from wapt_analyzer.hostpkg import add_to_report, plan_hosts
 from wapt_analyzer.packages import (
     PackageEntry,
     PackageFilters,
@@ -47,7 +45,7 @@ WINDOWS_SOFTWARE = [
     ("Mozilla Firefox (x64 fr)", "Mozilla", "157.0.1", 1.0, "firefox"),
     ("LibreOffice 26.8.0.2", "The Document Foundation", "26.8.0.2", 0.8, "libreoffice-fresh"),
     ("7-Zip 24.08 (x64)", "Igor Pavlov", "24.08", 0.9, None),
-    ("VLC media player", "VideoLAN", "3.0.21", 0.6, None),
+    ("VLC media player", "VideoLAN", "3.0.21", 0.6, "vlc"),
     ("Notepad++ (64-bit x64)", "Notepad++ Team", "8.9.8", 0.3, None),
     ("Greenshot 1.3.323", "Greenshot", "1.3.323", 0.2, None),
     ("GIMP 3.2.6", "The GIMP Team", "3.2.6", 0.25, None),
@@ -101,6 +99,19 @@ def repo_entries(store_entries: list[PackageEntry], filters: PackageFilters) -> 
     return entries
 
 
+def add_host_package(host: Host, rng: random.Random) -> None:
+    """Installed host package listing firefox (and LibreOffice): VLC, installed by WAPT later, is not in it.
+    Some host packages are gone from the server, a few hosts never had one."""
+    draw = rng.random()
+    if draw < 0.1:
+        return
+    depends = [p["package"] for p in host.installed_packages
+               if p["package"] in (f"{PREFIX}-firefox", f"{PREFIX}-libreoffice-fresh")]
+    host.installed_packages.append({"package": host.uuid, "version": str(rng.randint(2, 12)), "section": "host",
+                                    "architecture": "all", "depends": depends})
+    host.depends = None if draw < 0.3 else depends
+
+
 def build_hosts(rng: random.Random) -> list[Host]:
     hosts = []
     sites = ["ACCUEIL", "COMPTA", "ATELIER", "DIRECTION", "COMMERCIAL"]
@@ -123,6 +134,7 @@ def build_hosts(rng: random.Random) -> list[Host]:
                 if rng.random() <= share:
                     host.installed_packages.append({"package": package, "version": version, "section": "base",
                                                     "install_status": "OK"})
+        add_host_package(host, rng)
         hosts.append(host)
     return hosts
 
@@ -136,10 +148,12 @@ def main() -> None:
     cache = Cache(Path(DEFAULTS["cache"]["directory"]), offline=args.offline)
     store_entries = parse_packages_index(fetch_cached(f"{STORE_URL}/Packages", cache))
     filters = PackageFilters()
-    repo = index_by_family(repo_entries(store_entries, filters))
+    local_entries = repo_entries(store_entries, filters)
+    repo = index_by_family(local_entries)
     store = index_by_family(store_entries, filters)
     m = DEFAULTS["matching"]
-    result = analyze(repo, store, build_hosts(random.Random(42)), exclude=m["exclude"],
+    hosts = build_hosts(random.Random(42))
+    result = analyze(repo, store, hosts, exclude=m["exclude"],
                      exclude_keys=m["exclude_keys"], exclude_publishers=m["exclude_publishers"],
                      mappings=DEFAULTS["mappings"], updates=find_updates(repo, store_entries, filters),
                      fold_profiles=m["fold_profiles"])
@@ -148,8 +162,9 @@ def main() -> None:
         "store_url": STORE_URL, "prefix": PREFIX, "store_prefix": "tis", "icons_url": f"{STORE_URL}/icons",
         "store_page_url": "https://wapt.tranquil.it/store/fr",
     }
-    write_html(to_dict(result, context, restricted_licences=DEFAULTS["store"]["restricted_licences"]),
-               Path(args.output))
+    data = to_dict(result, context, restricted_licences=DEFAULTS["store"]["restricted_licences"])
+    add_to_report(data, plan_hosts(hosts, local_entries, PREFIX, unmanaged=result.software_unmanaged))
+    write_html(data, Path(args.output))
     print(f"Demo report: {args.output}")
 
 

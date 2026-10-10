@@ -213,6 +213,12 @@ def next_version(version: str) -> str:
     return str(int(version) + 1) if version.isdigit() else f"{version or '0'}+1"
 
 
+def add_to_report(data: dict, plans: list[HostPlan]) -> None:
+    """Report section « Paquets machine » and its counter (hosts whose host package would be uploaded)."""
+    data["host_packages"] = plans_to_dict(plans)
+    data["summary"]["host_packages"] = sum(p.needs_upload for p in plans)
+
+
 def plans_to_dict(plans: list[HostPlan]) -> list[dict]:
     """Hosts whose host package can be completed, for the report."""
     return [{

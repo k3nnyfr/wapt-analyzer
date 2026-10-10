@@ -16,7 +16,7 @@ from .analysis import AnalysisResult, analyze, find_updates
 from .cleanup import delete_packages, plan_cleanup
 from .config import load_config, resolve_client_key_password, resolve_key_password, resolve_password, resolve_totp
 from .fetch import USER_AGENT, Cache, fetch_cached
-from .hostpkg import control_for, next_version, plan_hosts, plans_to_dict
+from .hostpkg import add_to_report, control_for, next_version, plan_hosts
 from .importer import (
     ImportFailed,
     collect_trusted_certs,
@@ -315,11 +315,8 @@ def cmd_report(cfg: dict, args: argparse.Namespace) -> int:
     }
     data = to_dict(result, context, lang, restricted_licences=cfg["store"]["restricted_licences"])
     if prefix:
-        data["host_packages"] = plans_to_dict(plan_hosts(hosts, idx.repo_entries, prefix,
-                                                         unmanaged=result.software_unmanaged,
-                                                         exclude=cfg["hosts"]["exclude"]))
-        data["summary"]["host_packages"] = len([h for h in data["host_packages"]
-                                                if h["installed"] or h["adopt"] or h["missing_on_server"]])
+        add_to_report(data, plan_hosts(hosts, idx.repo_entries, prefix, unmanaged=result.software_unmanaged,
+                                       exclude=cfg["hosts"]["exclude"]))
 
     say = (lambda *a: None) if args.quiet else print
     html = render_html(data)
