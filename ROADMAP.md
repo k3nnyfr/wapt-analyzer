@@ -42,7 +42,10 @@
 - [x] Authentification MFA (TOTP)
 - [x] Authentification par certificat client
 
+## v0.6.0 — Rapport planifié
+- [x] Mode planifié (cron, timer systemd) avec envoi du rapport par mail et par webhook
+- [x] Envoi seulement en cas de nouveautés (`when = "changes"`)
+
 ## Plus tard
-- [ ] Mode planifié (cron) avec envoi du rapport (mail ou webhook)
 - [ ] Sélection interactive des paquets dans le terminal
 - [ ] Publication sur PyPI (`uvx wapt-analyzer`)

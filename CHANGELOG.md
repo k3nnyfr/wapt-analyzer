@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.6.0] - 2026-10-10
+
+### Added
+- **Notifications** : `report --notify` envoie le résumé du rapport aux destinations de la section `[notify]`.
+- **Envoi par mail** (SMTP, STARTTLS/SSL, login facultatif), avec le rapport HTML en pièce jointe et un sujet paramétrable.
+- **Webhooks** (plusieurs possibles) aux formats `json`, `slack` (Mattermost, Rocket.Chat) et `teams` (carte Adaptive Card pour les Workflows), avec en-têtes facultatifs et URL lisible dans un fichier `chmod 600`.
+- **Nouveautés depuis le dernier envoi** dans le résumé (mises à jour, paquets manquants, logiciels à importer) ; `when = "changes"` n'envoie que s'il y a du nouveau.
+- Mot de passe SMTP via `$WAPT_SMTP_PASSWORD`, `[notify.email] password_file` ou `$WAPT_SMTP_PASSWORD_FILE`.
+- `report -q` / `--quiet` : aucune sortie hors erreurs, pour cron.
+- Documentation de la planification : cron, timer systemd utilisateur, WSL.
+
 ## [0.5.0] - 2026-10-10
 
 ### Added
