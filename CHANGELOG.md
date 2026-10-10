@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.9.0] - 2026-10-10
+
+### Added
+- **Commande `groups`** : recrée les paquets groupe installés sur des postes mais disparus du dépôt, à partir de leur version installée la plus récente. Les dépendances absentes du dépôt sont écartées et signalées (`--keep-missing` pour les garder). Un groupe identique garde sa version. Simulation par défaut, `--apply` pour signer et envoyer.
+- **Groupes suggérés** : par OS, un groupe « socle commun » des paquets du dépôt installés sur la plupart des postes (60 %, au moins 3) et absents des groupes existants ; `groups --create-suggested` les crée.
+- **`hosts --groups`** : ajoute aux paquets machine les groupes du dépôt dont le poste a déjà la plupart des paquets (80 %), pour affecter un groupe nouvellement créé.
+- Onglet **« Paquets groupe »** dans le rapport, colonne « Groupes » dans « Paquets machine » ; section `[groups]` de la configuration ; page `docs/groups.md` et sa capture d'écran.
+
+### Changed
+- `hosts` ajoute au paquet machine les groupes installés sur le poste et présents dans le dépôt, et signale ceux qui manquent. Les paquets fournis par un groupe ne sont plus ajoutés un par un.
+
 ## [0.8.1] - 2026-10-10
 
 ### Changed

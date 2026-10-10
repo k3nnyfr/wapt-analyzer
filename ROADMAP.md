@@ -57,5 +57,9 @@
 - [x] Documentation structurée dans `docs/`, README raccourci
 - [x] Captures d'écran régénérables (`scripts/screenshots.py`)
 
+## v0.9.0 — Paquets groupe
+- [x] Recréer les paquets groupe déployés mais disparus du dépôt
+- [x] Suggérer des groupes « socle commun » et les affecter aux postes (`hosts --groups`)
+
 ## Plus tard
 - [ ] Publication sur PyPI (`uvx wapt-analyzer`)
