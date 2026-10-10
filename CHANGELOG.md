@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.7.0] - 2026-10-10
+
+### Added
+- **Sélection interactive** : `import -i` / `--interactive` présente les paquets demandés (noms, candidats de `--from-report` ou mises à jour de `--update`) dans une liste à cocher, avant le plan d'import.
+- Filtre au clavier (nom, version, OS, description), Espace pour cocher, Ctrl+A / Ctrl+D pour les lignes visibles, Entrée pour valider, Échap pour annuler.
+- Chaque ligne indique la version (ancienne → nouvelle pour une mise à jour), l'OS, l'architecture, la taille, les postes concernés et le nom du logiciel ; les paquets réservés aux abonnés ou exclus par la configuration sont grisés avec leur raison.
+- Tout est coché au départ avec `--update` ou des noms, rien avec `--from-report`.
+
+### Changed
+- Nouvelle dépendance : `prompt_toolkit`.
+
 ## [0.6.0] - 2026-10-10
 
 ### Added

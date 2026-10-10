@@ -46,6 +46,8 @@
 - [x] Mode planifié (cron, timer systemd) avec envoi du rapport par mail et par webhook
 - [x] Envoi seulement en cas de nouveautés (`when = "changes"`)
 
+## v0.7.0 — Sélection interactive
+- [x] Sélection interactive des paquets dans le terminal (`import -i`)
+
 ## Plus tard
-- [ ] Sélection interactive des paquets dans le terminal
 - [ ] Publication sur PyPI (`uvx wapt-analyzer`)
