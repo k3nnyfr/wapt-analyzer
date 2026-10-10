@@ -154,8 +154,11 @@ def write_csv(data: dict, directory: Path) -> list[Path]:
     return written
 
 
-def write_html(data: dict, path: Path) -> None:
+def render_html(data: dict) -> str:
     env = Environment(loader=PackageLoader("wapt_analyzer", "templates"),
                       autoescape=select_autoescape(["html"]), trim_blocks=True, lstrip_blocks=True)
-    html = env.get_template("report.html.j2").render(data=data, candidates=import_candidates(data))
-    path.write_text(html, encoding="utf-8")
+    return env.get_template("report.html.j2").render(data=data, candidates=import_candidates(data))
+
+
+def write_html(data: dict, path: Path) -> None:
+    path.write_text(render_html(data), encoding="utf-8")

@@ -88,5 +88,27 @@ output = "wapt-report.html"
 # csv_dir = "csv"
 language = "fr"            # language of package descriptions
 
+[notify]
+# Sent by `report --notify`, e.g. from cron: summary of the report by e-mail and/or to webhooks
+when = "always"            # always, or changes: only when something new appeared since the last sending
+# report_url = "https://intranet.example.org/wapt-report.html"   # link to the published HTML report
+# subject = "Rapport WAPT : {missing_packages} paquets manquants, {outdated} mises à jour"
+
+# [notify.email]
+# smtp_host = "smtp.example.org"
+# smtp_port = 587                          # default: 587 (starttls), 465 (ssl), 25 (none)
+# security = "starttls"                    # starttls, ssl or none
+# user = "wapt-analyzer"                   # no login when empty
+# password_file = "~/.config/wapt-analyzer/smtp-password"   # chmod 600; otherwise $WAPT_SMTP_PASSWORD
+# from = "wapt-analyzer@example.org"
+# to = ["admin@example.org"]
+# attach_report = true                     # attach the HTML report
+
+# [[notify.webhook]]                       # repeat the table for several webhooks
+# name = "mattermost"
+# format = "slack"                         # json (raw summary), slack (Slack, Mattermost, Rocket.Chat), teams
+# url_file = "~/.config/wapt-analyzer/webhook-url"   # chmod 600 (the URL often holds a token); or url = "..."
+# headers = { Authorization = "Bearer ..." }
+
 # [cache]
 # directory = "~/.cache/wapt-analyzer"

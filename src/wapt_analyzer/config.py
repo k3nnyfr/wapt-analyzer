@@ -122,6 +122,14 @@ DEFAULTS: dict = {
         "csv_dir": "",
         "language": "fr",
     },
+    # Notifications sent by `report --notify` (e-mail and/or webhooks)
+    "notify": {
+        "when": "always",             # always, or changes: only when something new appeared since the last sending
+        "report_url": "",             # link to the published HTML report, included in the messages
+        "subject": "Rapport WAPT : {missing_packages} paquets manquants, {outdated} mises à jour",
+        "email": {},                  # smtp_host, smtp_port, security, user, password_file, from, to, attach_report
+        "webhook": [],                # [[notify.webhook]] tables: url or url_file, format, headers, name
+    },
     "cache": {
         "directory": str(Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "wapt-analyzer"),
     },
@@ -160,7 +168,7 @@ def load_config(path: str | None) -> dict:
     return cfg
 
 
-def _read_secret_file(path: str) -> str:
+def read_secret_file(path: str) -> str:
     p = Path(path).expanduser()
     if p.stat().st_mode & (stat.S_IRWXG | stat.S_IRWXO):
         raise PermissionError(f"{p} must not be readable by group/others (chmod 600)")
@@ -175,7 +183,7 @@ def _resolve_secret(env: str, file_value: str, env_file: str, prompt: str, missi
         return value
     path = file_value or os.environ.get(env_file)
     if path:
-        return _read_secret_file(path)
+        return read_secret_file(path)
     if sys.stdin.isatty():
         return getpass.getpass(prompt)
     raise RuntimeError(missing)
@@ -205,6 +213,16 @@ def resolve_client_key_password(cfg: dict) -> str:
                            f"Passphrase for the client key {cfg['server']['client_private_key']}: ",
                            "No client key passphrase: set WAPT_CLIENT_KEY_PASSWORD, "
                            "server.client_key_password_file (or WAPT_CLIENT_KEY_PASSWORD_FILE) or run interactively")
+
+
+def resolve_smtp_password(cfg: dict) -> str:
+    """SMTP password: $WAPT_SMTP_PASSWORD, a protected file (notify.email.password_file or
+    $WAPT_SMTP_PASSWORD_FILE), then an interactive prompt."""
+    mail = cfg["notify"]["email"]
+    return _resolve_secret("WAPT_SMTP_PASSWORD", mail.get("password_file"), "WAPT_SMTP_PASSWORD_FILE",
+                           f"SMTP password for {mail.get('user')}@{mail.get('smtp_host')}: ",
+                           "No SMTP password: set WAPT_SMTP_PASSWORD, notify.email.password_file "
+                           "(or WAPT_SMTP_PASSWORD_FILE) or run interactively")
 
 
 def resolve_totp(cfg: dict) -> str:

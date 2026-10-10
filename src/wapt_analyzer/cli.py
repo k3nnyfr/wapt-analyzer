@@ -28,9 +28,10 @@ from .importer import (
     sign_packages,
     upload_package,
 )
+from .notify import NotifyError, notify
 from .packages import OS_FAMILIES, PackageEntry, PackageFilters, index_by_family, parse_packages_index
 from .progress import console, phase_progress
-from .report import import_candidates, to_dict, write_csv, write_html, write_json
+from .report import import_candidates, render_html, to_dict, write_csv, write_json
 from .server import WaptServer, WaptServerError, load_inventory, make_session
 
 log = logging.getLogger("wapt_analyzer")
@@ -91,6 +92,9 @@ def build_parser() -> argparse.ArgumentParser:
     out.add_argument("--csv-dir", help="Also write CSV files in this directory")
     out.add_argument("--lang", help="Language for package descriptions (default: fr)")
     out.add_argument("--offline", action="store_true", help="Only use cached indexes and inventory")
+    out.add_argument("--notify", action="store_true",
+                     help="Send the summary to the destinations of [notify] (e-mail, webhooks)")
+    out.add_argument("-q", "--quiet", action="store_true", help="Print nothing but errors (for cron)")
 
     imp = sub.add_parser(
         "import", parents=[common],
@@ -279,21 +283,25 @@ def cmd_report(cfg: dict, args: argparse.Namespace) -> int:
     }
     data = to_dict(result, context, lang, restricted_licences=cfg["store"]["restricted_licences"])
 
+    say = (lambda *a: None) if args.quiet else print
+    html = render_html(data)
     output = cfg["report"]["output"]
     if output and output != "-":
-        write_html(data, Path(output))
-        print(f"HTML report: {output}")
+        Path(output).write_text(html, encoding="utf-8")
+        say(f"HTML report: {output}")
     if cfg["report"]["json"]:
         write_json(data, Path(cfg["report"]["json"]))
-        print(f"JSON report: {cfg['report']['json']}")
+        say(f"JSON report: {cfg['report']['json']}")
     if cfg["report"]["csv_dir"]:
         for p in write_csv(data, Path(cfg["report"]["csv_dir"])):
-            print(f"CSV: {p}")
+            say(f"CSV: {p}")
 
     sm = data["summary"]
-    print(f"{sm['hosts']} hosts | {sm['missing_packages']} missing packages | "
-          f"{sm['software_to_import']} software to import | {sm['software_unmanaged']} outside WAPT | "
-          f"{sm['software_unmatched']} unmatched (+{sm['software_folded']} folded) | {sm['outdated']} outdated")
+    say(f"{sm['hosts']} hosts | {sm['missing_packages']} missing packages | "
+        f"{sm['software_to_import']} software to import | {sm['software_unmanaged']} outside WAPT | "
+        f"{sm['software_unmatched']} unmatched (+{sm['software_folded']} folded) | {sm['outdated']} outdated")
+    if args.notify and notify(cfg, data, cache, html):
+        return 1
     return 0
 
 
@@ -566,7 +574,7 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_import(cfg, args)
         if args.command == "cleanup":
             return cmd_cleanup(cfg, args)
-    except (WaptServerError, ImportFailed, RuntimeError, OSError, ValueError) as e:
+    except (WaptServerError, ImportFailed, NotifyError, RuntimeError, OSError, ValueError) as e:
         log.error("%s", e)
         return 1
     except KeyboardInterrupt:

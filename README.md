@@ -10,6 +10,7 @@ Sources : [Gitea](https://git.k3nny.fr/k3nny/wapt-analyzer) (dépôt principal) 
 | [`import`](#importer-des-paquets-depuis-le-store) | Importe des paquets du store : vérification de la signature d'origine, renommage à votre préfixe, signature avec **votre** clé, upload | Oui, avec `--apply` |
 | [`import --update`](#mettre-à-jour-les-paquets-du-dépôt) | Met à jour les paquets de votre dépôt pour lesquels le store propose une version plus récente | Oui, avec `--apply` |
 | [`cleanup`](#nettoyer-le-dépôt) | Supprime les anciennes versions qu'aucun poste ne peut plus installer | Oui, avec `--apply` |
+| [`report --notify`](#rapport-planifié-et-notifications) | Envoie le résumé du rapport par mail et/ou webhook, par exemple depuis cron | Non, lecture seule |
 
 Les commandes qui modifient le dépôt fonctionnent **en simulation par défaut** : elles affichent leur plan et ne font rien tant que `--apply` n'est pas passé.
 
@@ -281,6 +282,42 @@ exclude = ["waptupgrade"]     # nom sans préfixe
 | `--apply`, `-y` | Supprime réellement ; `-y` saute la confirmation |
 | `--keep N` | Conserve en plus les N versions précédentes |
 | `--all-prefixes` | Traite aussi les paquets qui ne sont pas à votre préfixe |
+
+## Rapport planifié et notifications
+
+`report --notify` envoie un résumé du rapport aux destinations de la section `[notify]` :
+- **par mail** (SMTP), avec le rapport HTML en pièce jointe ;
+- **par webhook**, en JSON brut, au format Slack (compatible Mattermost, Rocket.Chat…) ou en carte Microsoft Teams (Workflows). On peut déclarer plusieurs webhooks.
+
+Le résumé reprend les compteurs du rapport, puis les **nouveautés depuis le dernier envoi** : mises à jour disponibles, paquets manquants, logiciels à importer (dix par rubrique au plus).
+
+```toml
+[notify]
+when = "changes"           # n'envoyer que s'il y a du nouveau (défaut : always)
+report_url = "https://intranet.example.org/wapt-report.html"   # lien ajouté au message, facultatif
+
+[notify.email]
+smtp_host = "smtp.example.org"
+user = "wapt-analyzer"
+password_file = "~/.config/wapt-analyzer/smtp-password"
+from = "wapt-analyzer@example.org"
+to = ["admin@example.org"]
+
+[[notify.webhook]]
+format = "slack"
+url_file = "~/.config/wapt-analyzer/webhook-url"
+```
+
+Avec `when = "changes"`, le premier envoi a toujours lieu. Les suivants n'ont lieu que si une entrée nouvelle apparaît. Si aucune destination n'a pu être jointe, l'état n'est pas mémorisé, et les mêmes nouveautés seront proposées la fois suivante.
+
+Pour tester la configuration sans interroger le serveur : `uv run wapt-analyzer report --offline --notify`.
+
+Pour planifier le rapport, avec cron ou un timer systemd, voir [INSTALL.md](INSTALL.md#rapport-planifié). `-q` / `--quiet` supprime toute sortie hors erreurs, pour que cron n'envoie pas de mail à chaque exécution.
+
+| Option | Rôle |
+|---|---|
+| `--notify` | Envoie le résumé aux destinations de `[notify]` |
+| `-q`, `--quiet` | N'affiche que les erreurs |
 
 ## Limites
 

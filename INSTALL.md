@@ -9,6 +9,7 @@ Ce guide couvre l'installation de wapt-analyzer, le fichier de configuration et 
 - [Double authentification (TOTP)](#double-authentification-totp)
 - [Certificat client](#certificat-client)
 - [Clé de signature et passphrase](#clé-de-signature-et-passphrase)
+- [Rapport planifié](#rapport-planifié)
 - [Fichiers créés par l'outil](#fichiers-créés-par-loutil)
 - [Vérifier l'installation](#vérifier-linstallation)
 - [Mise à jour et désinstallation](#mise-à-jour-et-désinstallation)
@@ -152,6 +153,7 @@ Pour une même option, la valeur la plus à droite l'emporte :
 | `WAPT_KEY_PASSWORD`, `WAPT_KEY_PASSWORD_FILE` | voir [Clé de signature et passphrase](#clé-de-signature-et-passphrase) |
 | `WAPT_TOTP` | voir [Double authentification (TOTP)](#double-authentification-totp) |
 | `WAPT_CLIENT_KEY_PASSWORD`, `WAPT_CLIENT_KEY_PASSWORD_FILE` | voir [Certificat client](#certificat-client) |
+| `WAPT_SMTP_PASSWORD`, `WAPT_SMTP_PASSWORD_FILE` | voir [Rapport planifié](#rapport-planifié) |
 
 Les secrets suivent leur propre ordre de recherche, décrit ci-dessous.
 
@@ -275,6 +277,8 @@ La passphrase est transmise au processus `waptpython` par son entrée standard, 
 | Passphrase de la clé | `WAPT_KEY_PASSWORD` | `[signing] key_password_file` / `--key-password-file` | `WAPT_KEY_PASSWORD_FILE` |
 | Passphrase du certificat client | `WAPT_CLIENT_KEY_PASSWORD` | `[server] client_key_password_file` / `--client-key-password-file` | `WAPT_CLIENT_KEY_PASSWORD_FILE` |
 | Code TOTP | `WAPT_TOTP` | — (`--totp`) | — |
+| Mot de passe SMTP | `WAPT_SMTP_PASSWORD` | `[notify.email] password_file` | `WAPT_SMTP_PASSWORD_FILE` |
+| URL de webhook | — | `[[notify.webhook]] url_file` | — |
 
 Arborescence type :
 
@@ -288,11 +292,88 @@ Arborescence type :
 └── moncert.pem        # 600
 ```
 
+## Rapport planifié
+
+`report --notify` envoie le résumé du rapport par mail et/ou webhook (configuration `[notify]` : voir le [README](README.md#rapport-planifié-et-notifications)). Lancé régulièrement, il prévient des nouveautés du parc sans avoir à ouvrir le rapport.
+
+### Prérequis
+
+Une tâche planifiée tourne sans terminal : rien ne peut être saisi au clavier.
+
+- Le mot de passe du serveur doit venir d'un fichier (`[server] password_file`) ou de l'environnement.
+- Le compte ne doit pas exiger de code TOTP : prévoyez un compte dédié, sans MFA, limité aux droits nécessaires. `report` ne fait que lire.
+- Une clé de certificat client chiffrée demande un fichier de passphrase (`client_key_password_file`).
+- Le mot de passe SMTP éventuel vient de `[notify.email] password_file` ou de `WAPT_SMTP_PASSWORD`.
+- Une URL de webhook contient souvent un jeton : rangez-la dans un fichier `chmod 600` désigné par `url_file`, plutôt qu'en clair dans `url`.
+
+```bash
+install -m 600 /dev/null ~/.config/wapt-analyzer/smtp-password    # puis y écrire le mot de passe SMTP
+install -m 600 /dev/null ~/.config/wapt-analyzer/webhook-url      # puis y écrire l'URL du webhook
+```
+
+Validez la configuration à la main avant de planifier, sans interroger le serveur : `uv run wapt-analyzer report --offline --notify`.
+
+### Avec cron
+
+`crontab -e`, pour un rapport du lundi au vendredi à 7 h 30 :
+
+```cron
+30 7 * * 1-5  $HOME/.local/bin/uv run --directory $HOME/wapt-analyzer wapt-analyzer report --notify --quiet
+```
+
+- Le `PATH` de cron est réduit : donnez le chemin complet de `uv` (`which uv`). Avec une installation par `uv tool install`, appelez directement `$HOME/.local/bin/wapt-analyzer`.
+- `--directory` pointe vers le clone. La configuration est alors lue dans `./wapt-analyzer.toml` du clone, sinon dans `~/.config/wapt-analyzer/config.toml`.
+- `--quiet` n'affiche que les erreurs : cron n'envoie un mail que si quelque chose échoue.
+- Pour publier le rapport HTML sur un serveur web, ajoutez `-o /var/www/wapt/wapt-report.html` et renseignez `[notify] report_url`.
+
+### Avec un timer systemd (utilisateur)
+
+`~/.config/systemd/user/wapt-analyzer.service` :
+
+```ini
+[Unit]
+Description=Rapport wapt-analyzer
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/wapt-analyzer
+ExecStart=%h/.local/bin/uv run wapt-analyzer report --notify --quiet
+```
+
+`~/.config/systemd/user/wapt-analyzer.timer` :
+
+```ini
+[Unit]
+Description=Rapport wapt-analyzer en semaine
+
+[Timer]
+OnCalendar=Mon..Fri 07:30
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now wapt-analyzer.timer
+loginctl enable-linger "$USER"        # pour que le timer tourne sans session ouverte
+journalctl --user -u wapt-analyzer    # journal des exécutions
+```
+
+`Persistent=true` rattrape une exécution manquée, par exemple si la machine était éteinte à l'heure prévue.
+
+### Sous WSL
+
+Ni cron ni systemd ne tournent par défaut dans WSL. Deux possibilités :
+- activer systemd dans la distribution (`[boot] systemd=true` dans `/etc/wsl.conf`, puis `wsl --shutdown`), et utiliser le timer ci-dessus ;
+- ou créer une tâche dans le Planificateur de tâches Windows qui lance `wsl.exe -d <distribution> -- bash -lc "cd ~/wapt-analyzer && ~/.local/bin/uv run wapt-analyzer report --notify --quiet"`.
+
 ## Fichiers créés par l'outil
 
 | Emplacement | Contenu | Remarque |
 |---|---|---|
-| `~/.cache/wapt-analyzer/` (`[cache] directory`, `--cache-dir`) | Index des dépôts, inventaire des postes | Fichiers en `600` ; réutilisés par `report --offline` |
+| `~/.cache/wapt-analyzer/` (`[cache] directory`, `--cache-dir`) | Index des dépôts, inventaire des postes, état du dernier envoi de `--notify` | Inventaire et état en `600` ; réutilisés par `report --offline` |
 | `<cache>/import/` (`[import] work_dir`) | Paquets téléchargés et signés | Sous WSL avec l'agent Windows : `%LOCALAPPDATA%\wapt-analyzer\import` |
 | `wapt-report.html` (`[report] output`, `-o`) | Rapport HTML | Dans le dossier courant par défaut |
 
