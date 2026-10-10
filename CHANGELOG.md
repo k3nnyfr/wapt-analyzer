@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.4.2] - 2026-10-10
+
+### Added
+- **Guide d'installation** `INSTALL.md` : prérequis, installation depuis un clone ou avec `uv tool install`, recherche et sections du fichier de configuration, ordre de priorité avec les variables d'environnement.
+- **Stockage des secrets** documenté : ordre de recherche du mot de passe du serveur et de la passphrase de la clé, création des fichiers `chmod 600`, limites sous WSL (`/mnt/c`) et sous Windows natif, fichiers créés par l'outil.
+- **Rapport de démonstration** `scripts/demo_report.py` : rapport généré à partir de postes et d'un dépôt fictifs, confrontés à l'index public du store, sans serveur.
+
+### Changed
+- README : capture d'écran du rapport, section Installation réduite à un démarrage rapide renvoyant vers `INSTALL.md`.
+
+### Fixed
+- Documentation de l'ordre de priorité des fichiers de secrets : `password_file` / `--password-file` passent avant `$WAPT_PASSWORD_FILE` (idem pour la passphrase), contrairement à ce qu'indiquait le README.
+
 ## [0.4.1] - 2026-10-10
 
 ### Added
