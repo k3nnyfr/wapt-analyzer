@@ -11,10 +11,10 @@ import requests
 
 from .config import read_secret_file, resolve_smtp_password
 from .fetch import USER_AGENT, Cache
+from .packages import OS_LABELS
 
 log = logging.getLogger(__name__)
 
-OS_LABELS = {"windows": "Windows", "macos": "macOS", "linux": "Linux"}
 STATE_KEY = "notify-state"
 MAX_ITEMS = 10
 

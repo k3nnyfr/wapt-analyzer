@@ -166,6 +166,7 @@ OS_FAMILIES: dict[str, tuple[str, ...]] = {
     "linux": ("linux", "debian_based", "redhat_based", "debian", "ubuntu", "redhat", "centos", "rocky",
               "almalinux", "rhel"),
 }
+OS_LABELS = {"windows": "Windows", "macos": "macOS", "linux": "Linux"}
 UNIVERSAL_OS = ("all", "")
 
 

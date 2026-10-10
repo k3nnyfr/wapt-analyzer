@@ -29,7 +29,8 @@ from .importer import (
     upload_package,
 )
 from .notify import NotifyError, notify
-from .packages import OS_FAMILIES, PackageEntry, PackageFilters, index_by_family, parse_packages_index
+from .packages import OS_FAMILIES, OS_LABELS, PackageEntry, PackageFilters, index_by_family, parse_packages_index
+from .picker import Choice, pick
 from .progress import console, phase_progress
 from .report import import_candidates, render_html, to_dict, write_csv, write_json
 from .server import WaptServer, WaptServerError, load_inventory, make_session
@@ -109,6 +110,8 @@ def build_parser() -> argparse.ArgumentParser:
                      help="Update the repository packages for which the store has a newer version")
     src.add_argument("--from-report", metavar="JSON", help="Import the candidates of a JSON report")
     src.add_argument("--only", type=_csv_list, help="With --from-report: only these packages (comma separated)")
+    src.add_argument("-i", "--interactive", action="store_true",
+                     help="Choose the packages in a checklist in the terminal")
     src.add_argument("--no-deps", action="store_true", help="Do not add missing dependencies")
     src.add_argument("--force", action="store_true", help="Import even if the repository has the same or newer")
     act = imp.add_argument_group("action")
@@ -388,6 +391,30 @@ def cmd_cleanup(cfg: dict, args: argparse.Namespace) -> int:
 STAGES = {"verify": "vérification de la signature d'origine…", "sign": "signature…"}
 
 
+def pick_requests(cfg: dict, idx: Indexes, requested: list, candidates: list[dict], preselect: bool):
+    """Checklist of the import requests; None if cancelled. Packages already chosen are preselected,
+    report candidates are not (a report often proposes many more packages than wanted)."""
+    hosts = {c["filename"]: c["host_count"] for c in candidates}
+    restricted = tuple(cfg["store"]["restricted_licences"])
+    excluded = set(cfg["import"]["exclude"])
+    choices = []
+    for entry, fams in requested:
+        local = next((idx.repo.get(f, {}).get(f"{cfg['repo']['prefix']}-{entry.base}") for f in fams), None)
+        version = f"{local.version} → {entry.version}" if local else str(entry.version)
+        detail = [version, ",".join(OS_LABELS.get(f, f) for f in fams), entry.architecture,
+                  _human_size(int(entry.get("size") or 0))]
+        detail.append(f"{hosts[entry.filename]} poste(s)" if entry.filename in hosts else "")
+        detail.append(entry.name)
+        lic = entry.restricted_by(restricted)
+        disabled = (f"réservé aux abonnés : {lic}" if lic
+                    else "exclu par la configuration" if entry.base in excluded else "")
+        choices.append(Choice((entry, fams), entry.package, tuple(detail), selected=preselect and not disabled,
+                              disabled=disabled))
+    if not choices:
+        return []
+    return pick(choices, f"Paquets à importer depuis {idx.store_url} ({len(choices)})")
+
+
 def cmd_import(cfg: dict, args: argparse.Namespace) -> int:
     prefix = cfg["repo"]["prefix"]
     if not prefix:
@@ -417,6 +444,17 @@ def cmd_import(cfg: dict, args: argparse.Namespace) -> int:
         requested = _update_requests(cfg, idx, families, names=args.packages + (args.only or []))
     else:
         requested = resolve_requests(args.packages, candidates, idx.store_entries, idx.store, families)
+    if args.interactive:
+        if not sys.stdin.isatty():
+            log.error("--interactive needs a terminal")
+            return 2
+        requested = pick_requests(cfg, idx, requested, candidates, preselect=not args.from_report)
+        if requested is None:
+            print("Aborted.")
+            return 1
+        if not requested:
+            print("Nothing selected.")
+            return 0
     plan = plan_imports(requested, idx.store, idx.repo, prefix, with_deps=cfg["import"]["dependencies"]
                         and not args.no_deps, force=args.force, excluded_bases=tuple(cfg["import"]["exclude"]),
                         restricted_licences=tuple(cfg["store"]["restricted_licences"]))

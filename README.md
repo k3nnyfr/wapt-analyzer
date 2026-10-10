@@ -137,6 +137,30 @@ uv run wapt-analyzer import --from-report wapt-report.json --only gimp,libreoffi
 uv run wapt-analyzer import --update                      # paquets du dépôt en retard sur le store
 ```
 
+### Sélection interactive
+
+Avec `-i` / `--interactive`, la liste est présentée dans le terminal pour cocher les paquets un par un, avant le plan d'import :
+
+```bash
+uv run wapt-analyzer import --from-report wapt-report.json -i   # choisir parmi les candidats du rapport
+uv run wapt-analyzer import --update -i --apply                 # choisir les mises à jour à appliquer
+```
+
+```
+Paquets à importer depuis https://wapt.tranquil.it/wapt (4)
+Filtre :
+ [x] tis-7zip         26.3-46 → 26.4-46                    Windows  x64  1.6 MB    7-Zip
+ [-] tis-waptupgrade  2.7.0.19593-0 → 2.7.0.19598-0        Linux    x64  44.4 MB   WAPT Agent  (exclu par la configuration)
+ [x] tis-webview2     154.0.4258.62-12 → 155.0.4283.45-12  Windows  x64  204.2 MB  Microsoft Edge WebView2 Runtime
+ 2 sélectionné(s) sur 4 · ↑↓ déplacer · Espace cocher · Ctrl+A tout · Ctrl+D rien · Entrée valider · Échap annuler
+```
+
+- Ce qu'on tape filtre la liste (nom, version, OS, description). `Ctrl+A` et `Ctrl+D` cochent ou décochent les lignes visibles.
+- Chaque ligne indique la version (ancienne → nouvelle pour une mise à jour), l'OS, l'architecture, la taille, le nombre de postes concernés (avec `--from-report`) et le nom du logiciel.
+- Les paquets réservés aux abonnés ou exclus par `[import] exclude` sont grisés et ne peuvent pas être cochés.
+- Avec `--update` ou des noms de paquets, tout est coché au départ. Avec `--from-report`, rien ne l'est, car un rapport propose en général bien plus de paquets qu'on n'en veut.
+- `Entrée` valide et affiche le plan d'import (dépendances comprises). `Échap` annule.
+
 Sans `--apply`, la commande affiche seulement le plan : paquets retenus, dépendances ajoutées, paquets ignorés et pourquoi, taille à télécharger. Avec `--apply`, elle demande confirmation (sauf `-y`) puis exécute :
 
 ```bash
@@ -165,6 +189,7 @@ Options principales de `wapt-analyzer import` :
 |---|---|
 | `PAQUET…` | Paquets à importer (`firefox` ou `tis-firefox`) ; avec `--update`, restreint la mise à jour à ces paquets |
 | `--from-report JSON`, `--only` | Importe les candidats d'un rapport JSON, éventuellement filtrés |
+| `-i`, `--interactive` | Choisit les paquets dans une liste à cocher (voir [Sélection interactive](#sélection-interactive)) |
 | `--update` | Met à jour les paquets du dépôt en retard sur le store (voir ci-dessous) |
 | `--apply`, `-y` | Exécute réellement l'import ; `-y` saute la confirmation |
 | `--cleanup` | Après l'upload, supprime les versions remplacées par celles importées (voir [Nettoyer le dépôt](#nettoyer-le-dépôt)) |
