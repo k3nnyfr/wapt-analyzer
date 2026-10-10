@@ -1,11 +1,13 @@
 # Installation et configuration
 
-Ce guide couvre l'installation de wapt-analyzer, le fichier de configuration et le stockage des secrets (mot de passe du serveur WAPT, passphrase de la clé de signature). Pour l'utilisation des commandes, voir le [README](README.md).
+Ce guide couvre l'installation de wapt-analyzer, le fichier de configuration et le stockage des secrets (mot de passe du serveur WAPT, code TOTP, certificat client, passphrase de la clé de signature). Pour l'utilisation des commandes, voir le [README](README.md).
 
 - [Prérequis](#prérequis)
 - [Installation](#installation)
 - [Fichier de configuration](#fichier-de-configuration)
 - [Mot de passe du serveur WAPT](#mot-de-passe-du-serveur-wapt)
+- [Double authentification (TOTP)](#double-authentification-totp)
+- [Certificat client](#certificat-client)
 - [Clé de signature et passphrase](#clé-de-signature-et-passphrase)
 - [Fichiers créés par l'outil](#fichiers-créés-par-loutil)
 - [Vérifier l'installation](#vérifier-linstallation)
@@ -119,7 +121,7 @@ key_password_file = "~/.config/wapt-analyzer/key-password"
 
 | Section | Contenu | Clés principales |
 |---|---|---|
-| `[server]` | Serveur WAPT et compte admin | `url`, `user`, `password_file`, `verify_ssl` (`true`, `false` ou chemin d'un bundle CA), `workers` |
+| `[server]` | Serveur WAPT et compte admin | `url`, `user`, `password_file`, `verify_ssl` (`true`, `false` ou chemin d'un bundle CA), `workers`, `client_certificate`, `client_private_key`, `client_key_password_file` |
 | `[repo]` | Votre dépôt | `prefix`, `url` (défaut : `<server.url>/wapt`) |
 | `[store]` | Source des paquets à importer | `url`, `prefix`, `trusted_fingerprints`, `trusted_certs`, `restricted_licences` |
 | `[filters]` | Paquets du store retenus | `families`, `maturities`, `locales`, `[filters.architectures]` |
@@ -148,6 +150,8 @@ Pour une même option, la valeur la plus à droite l'emporte :
 | `WAPT_PREFIX` | `[repo] prefix` / `--prefix` |
 | `WAPT_PASSWORD`, `WAPT_PASSWORD_FILE` | voir [Mot de passe du serveur WAPT](#mot-de-passe-du-serveur-wapt) |
 | `WAPT_KEY_PASSWORD`, `WAPT_KEY_PASSWORD_FILE` | voir [Clé de signature et passphrase](#clé-de-signature-et-passphrase) |
+| `WAPT_TOTP` | voir [Double authentification (TOTP)](#double-authentification-totp) |
+| `WAPT_CLIENT_KEY_PASSWORD`, `WAPT_CLIENT_KEY_PASSWORD_FILE` | voir [Certificat client](#certificat-client) |
 
 Les secrets suivent leur propre ordre de recherche, décrit ci-dessous.
 
@@ -193,6 +197,47 @@ Pour une tâche planifiée, préférez un fichier `chmod 600` à une variable é
 - **WSL** : rangez les fichiers de secrets dans le système de fichiers Linux (`~/…`), pas sous `/mnt/c/…`. Les fichiers du disque Windows apparaissent en général avec les droits `777`, et `chmod` n'y a pas d'effet sans l'option de montage `metadata` : ils sont donc refusés.
 - **Windows natif** : les droits Unix n'existent pas et les fichiers paraissent lisibles par tous, donc refusés. Utilisez `WAPT_PASSWORD` ou la saisie interactive.
 
+## Double authentification (TOTP)
+
+Si le compte WAPT exige un code TOTP, l'outil le demande **seulement quand le serveur le réclame**, après le mot de passe. Le code est cherché dans cet ordre :
+
+1. l'option `--totp CODE` ;
+2. la variable d'environnement `WAPT_TOTP` ;
+3. une saisie interactive, si l'outil tourne dans un terminal.
+
+```bash
+uv run wapt-analyzer report --totp 123456
+```
+
+Un code n'est valable qu'une trentaine de secondes : il ne se met donc pas dans le fichier de configuration. L'outil se connecte une seule fois par commande, au début. Même `import --apply` se connecte avant les téléchargements et la signature, pour que le code soit encore valable au moment du login.
+
+Le code est transmis comme le font la console WAPT et `wapt-get` : ajouté au mot de passe sous la forme `motdepasse{123456}`. Un mot de passe qui se termine déjà par `{123456}` est envoyé tel quel.
+
+Une tâche planifiée ne peut pas fournir de code TOTP : utilisez pour elle un compte sans MFA, limité aux droits nécessaires.
+
+## Certificat client
+
+Si le serveur WAPT exige un certificat client (authentification par certificat configurée dans nginx), indiquez-le :
+
+```toml
+[server]
+client_certificate = "~/.config/wapt-analyzer/client.crt"
+client_private_key = "~/.config/wapt-analyzer/client.pem"   # défaut : même chemin en .pem, s'il existe
+```
+
+En ligne de commande : `--client-certificate` et `--client-private-key`. Si la clé est dans le même fichier que le certificat, `client_private_key` est inutile.
+
+Le certificat est présenté pour toutes les requêtes vers le serveur : l'API (login, inventaire, upload, suppression) et l'index du dépôt (`<server>/wapt/Packages`). Il ne l'est pas pour le store. Il s'ajoute au login et au mot de passe, il ne les remplace pas.
+
+Si la clé est chiffrée, sa passphrase est cherchée dans cet ordre :
+
+1. la variable `WAPT_CLIENT_KEY_PASSWORD` ;
+2. le fichier `--client-key-password-file`, ou à défaut `[server] client_key_password_file` ;
+3. le fichier désigné par `WAPT_CLIENT_KEY_PASSWORD_FILE` ;
+4. une saisie interactive.
+
+Le fichier suit les mêmes règles que celui du mot de passe : une ligne, `chmod 600`. La clé déchiffrée reste en mémoire et n'est jamais écrite sur disque. Une clé non chiffrée ne déclenche aucune demande ; protégez-la alors en `chmod 600`.
+
 ## Clé de signature et passphrase
 
 `import` signe les paquets avec **votre** certificat, celui auquel vos agents WAPT font confiance. Il faut :
@@ -228,6 +273,8 @@ La passphrase est transmise au processus `waptpython` par son entrée standard, 
 |---|---|---|---|
 | Mot de passe du serveur | `WAPT_PASSWORD` | `[server] password_file` / `--password-file` | `WAPT_PASSWORD_FILE` |
 | Passphrase de la clé | `WAPT_KEY_PASSWORD` | `[signing] key_password_file` / `--key-password-file` | `WAPT_KEY_PASSWORD_FILE` |
+| Passphrase du certificat client | `WAPT_CLIENT_KEY_PASSWORD` | `[server] client_key_password_file` / `--client-key-password-file` | `WAPT_CLIENT_KEY_PASSWORD_FILE` |
+| Code TOTP | `WAPT_TOTP` | — (`--totp`) | — |
 
 Arborescence type :
 

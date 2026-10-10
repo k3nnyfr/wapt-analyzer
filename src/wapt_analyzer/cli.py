@@ -14,7 +14,7 @@ import requests
 from . import __version__
 from .analysis import analyze, find_updates
 from .cleanup import delete_packages, plan_cleanup
-from .config import load_config, resolve_key_password, resolve_password
+from .config import load_config, resolve_client_key_password, resolve_key_password, resolve_password, resolve_totp
 from .fetch import USER_AGENT, Cache, fetch_cached
 from .importer import (
     ImportFailed,
@@ -31,7 +31,7 @@ from .importer import (
 from .packages import OS_FAMILIES, PackageEntry, PackageFilters, index_by_family, parse_packages_index
 from .progress import console, phase_progress
 from .report import import_candidates, to_dict, write_csv, write_html, write_json
-from .server import WaptServer, WaptServerError, load_inventory
+from .server import WaptServer, WaptServerError, load_inventory, make_session
 
 log = logging.getLogger("wapt_analyzer")
 
@@ -46,6 +46,10 @@ def _common_options() -> argparse.ArgumentParser:
     srv.add_argument("--server", dest="server_url", help="WAPT server URL, e.g. https://wapt.example.org")
     srv.add_argument("--user", help="Admin user (password: $WAPT_PASSWORD, password_file or prompt)")
     srv.add_argument("--password-file", help="File containing the password (must be chmod 600)")
+    srv.add_argument("--totp", help="TOTP code, when the account requires MFA (default: $WAPT_TOTP or prompt)")
+    srv.add_argument("--client-certificate", help="TLS client certificate, when the server requires one")
+    srv.add_argument("--client-private-key", help="Key of the client certificate (default: same path with .pem)")
+    srv.add_argument("--client-key-password-file", help="File containing the client key passphrase (chmod 600)")
     srv.add_argument("--insecure", action="store_true", help="Do not verify TLS certificates")
     srv.add_argument("--ca-bundle", help="CA bundle used to verify the server certificate")
 
@@ -144,6 +148,9 @@ def build_parser() -> argparse.ArgumentParser:
 def apply_args(cfg: dict, args: argparse.Namespace) -> dict:
     mapping = {
         "server_url": ("server", "url"), "user": ("server", "user"), "password_file": ("server", "password_file"),
+        "totp": ("server", "totp"), "client_certificate": ("server", "client_certificate"),
+        "client_private_key": ("server", "client_private_key"),
+        "client_key_password_file": ("server", "client_key_password_file"),
         "workers": ("server", "workers"), "prefix": ("repo", "prefix"), "repo_url": ("repo", "url"),
         "store_url": ("store", "url"), "store_prefix": ("store", "prefix"),
         "families": ("filters", "families"),
@@ -168,6 +175,11 @@ def apply_args(cfg: dict, args: argparse.Namespace) -> dict:
         cfg["server"]["verify_ssl"] = False
     elif args.ca_bundle:
         cfg["server"]["verify_ssl"] = args.ca_bundle
+    client_cert = cfg["server"]["client_certificate"]
+    if client_cert and not cfg["server"]["client_private_key"]:
+        pem = Path(client_cert).expanduser().with_suffix(".pem")
+        if pem.is_file() and pem != Path(client_cert).expanduser():
+            cfg["server"]["client_private_key"] = str(pem)  # otherwise the key is in the certificate file
     if cfg["signing"]["certificate"] and not cfg["signing"]["private_key"]:
         cfg["signing"]["private_key"] = str(Path(cfg["signing"]["certificate"]).with_suffix(".pem"))
     return cfg
@@ -184,6 +196,19 @@ class Indexes:
     store_index_data: bytes
     filters: PackageFilters
     repo_entries: list[PackageEntry]
+    session: requests.Session | None = None   # WAPT server session (TLS settings, client certificate)
+
+
+def server_session(cfg: dict) -> requests.Session:
+    srv = cfg["server"]
+    return make_session(srv["verify_ssl"], srv["client_certificate"], srv["client_private_key"],
+                        key_password=lambda: resolve_client_key_password(cfg))
+
+
+def connect(cfg: dict, idx: Indexes) -> WaptServer:
+    """Server client on the shared session; the TOTP code is only asked if the account requires it."""
+    return WaptServer(idx.server_url, cfg["server"]["user"], resolve_password(cfg), verify=cfg["server"]["verify_ssl"],
+                      session=idx.session or server_session(cfg), totp=lambda: resolve_totp(cfg))
 
 
 def load_indexes(cfg: dict, cache: Cache) -> Indexes:
@@ -199,11 +224,13 @@ def load_indexes(cfg: dict, cache: Cache) -> Indexes:
         architectures={f: tuple(v) for f, v in cfg["filters"]["architectures"].items()},
         maturities=tuple(cfg["filters"]["maturities"]), locales=tuple(cfg["filters"]["locales"]),
     )
-    repo_entries = parse_packages_index(fetch_cached(f"{repo_url}/Packages", cache, verify=cfg["server"]["verify_ssl"]))
+    session = None if cache.offline else server_session(cfg)
+    repo_entries = parse_packages_index(fetch_cached(f"{repo_url}/Packages", cache, session=session,
+                                                     verify=cfg["server"]["verify_ssl"]))
     store_data = fetch_cached(f"{store_url}/Packages", cache)
     store_entries = parse_packages_index(store_data)
     idx = Indexes(server_url, repo_url, store_url, index_by_family(repo_entries),
-                  index_by_family(store_entries, filters), store_entries, store_data, filters, repo_entries)
+                  index_by_family(store_entries, filters), store_entries, store_data, filters, repo_entries, session)
     for fam in OS_FAMILIES:
         log.info("%s: %d packages in repository, %d eligible in store", fam, len(idx.repo[fam]), len(idx.store[fam]))
     return idx
@@ -224,8 +251,7 @@ def cmd_report(cfg: dict, args: argparse.Namespace) -> int:
 
     server = None
     if not args.offline:
-        server = WaptServer(idx.server_url, cfg["server"]["user"], resolve_password(cfg),
-                            verify=cfg["server"]["verify_ssl"])
+        server = connect(cfg, idx)
     hosts = load_inventory(server, cache, workers=int(cfg["server"]["workers"]))
     families = cfg["filters"]["families"]
     if families:
@@ -331,8 +357,7 @@ def run_cleanup(cfg: dict, idx: Indexes, *, names: list[str], apply: bool, yes: 
             return 1
     own_session = server is None
     if own_session:
-        server = WaptServer(idx.server_url, cfg["server"]["user"], resolve_password(cfg),
-                            verify=cfg["server"]["verify_ssl"])
+        server = connect(cfg, idx)
         server.login()
     try:
         result = delete_packages(server, [i.entry.get("package_uuid") for i in todo])
@@ -369,7 +394,6 @@ def cmd_import(cfg: dict, args: argparse.Namespace) -> int:
     if args.cleanup and args.no_upload:
         log.error("--cleanup needs the upload: it cannot be combined with --no-upload")
         return 2
-    cleanup_code = 0
     cache = _cache(cfg)
     idx = load_indexes(cfg, cache)
 
@@ -438,9 +462,21 @@ def cmd_import(cfg: dict, args: argparse.Namespace) -> int:
     key_password = resolve_key_password(cfg)
     server = None
     if not args.no_upload:
-        server = WaptServer(idx.server_url, cfg["server"]["user"], resolve_password(cfg),
-                            verify=cfg["server"]["verify_ssl"])
+        # Logged in before the long steps: a TOTP code is only valid for about 30 seconds
+        server = connect(cfg, idx)
+        server.login()
+    try:
+        return _run_import(cfg, args, idx, todo, server, key_password, wapt_python, work_dir, trusted)
+    finally:
+        if server:
+            server.logout()
 
+
+def _run_import(cfg: dict, args: argparse.Namespace, idx: Indexes, todo: list, server: WaptServer | None,
+                key_password: str, wapt_python: str, work_dir: Path, trusted: list[Path]) -> int:
+    """Download, sign, upload (and optionally clean) the planned packages."""
+    signing, prefix = cfg["signing"], cfg["repo"]["prefix"]
+    cleanup_code = 0
     output_dir = Path(args.output_dir or work_dir / "signed").expanduser()
 
     session = requests.Session()
@@ -478,36 +514,31 @@ def cmd_import(cfg: dict, args: argparse.Namespace) -> int:
                               task, current=f"{item.entry.package}: {STAGES.get(stage, stage)}"),
                           on_done=signed_one)
             progress.update(task, current="")
-    del key_password
 
     signed = [i for i in todo if i.result.get("ok")]
     if server and signed:
-        server.login()
-        try:
-            paths = [Path(i.result["local_path"]) for i in signed]
-            with phase_progress() as progress:
-                task = progress.add_task("", total=sum(p.stat().st_size for p in paths), phase="Upload",
-                                         current="")
-                for item, path in zip(signed, paths, strict=True):
-                    progress.update(task, current=path.name)
-                    try:
-                        upload_package(server, path, on_progress=lambda n: progress.advance(task, n))
-                        item.result["uploaded"] = True
-                    except (ImportFailed, requests.RequestException) as e:
-                        item.result.update(ok=False, error=str(e))
-                        log.error("%s: %s", path.name, e)
-                progress.update(task, current="")
+        paths = [Path(i.result["local_path"]) for i in signed]
+        with phase_progress() as progress:
+            task = progress.add_task("", total=sum(p.stat().st_size for p in paths), phase="Upload",
+                                     current="")
+            for item, path in zip(signed, paths, strict=True):
+                progress.update(task, current=path.name)
+                try:
+                    upload_package(server, path, on_progress=lambda n: progress.advance(task, n))
+                    item.result["uploaded"] = True
+                except (ImportFailed, requests.RequestException) as e:
+                    item.result.update(ok=False, error=str(e))
+                    log.error("%s: %s", path.name, e)
+            progress.update(task, current="")
 
-            uploaded = [i for i in signed if i.result.get("uploaded")]
-            if args.cleanup and uploaded:
-                # Fresh repository index: the server rebuilds it after each upload
-                print("\nCleanup of the versions superseded by this import:")
-                idx.repo_entries = parse_packages_index(fetch_cached(
-                    f"{idx.repo_url}/Packages", _cache(cfg), verify=cfg["server"]["verify_ssl"]))
-                cleanup_code = run_cleanup(cfg, idx, names=[i.result["package"] for i in uploaded], apply=True,
-                                           yes=args.yes, server=server)
-        finally:
-            server.logout()
+        uploaded = [i for i in signed if i.result.get("uploaded")]
+        if args.cleanup and uploaded:
+            # Fresh repository index: the server rebuilds it after each upload
+            print("\nCleanup of the versions superseded by this import:")
+            idx.repo_entries = parse_packages_index(fetch_cached(
+                f"{idx.repo_url}/Packages", _cache(cfg), session=server.session, verify=cfg["server"]["verify_ssl"]))
+            cleanup_code = run_cleanup(cfg, idx, names=[i.result["package"] for i in uploaded], apply=True,
+                                       yes=args.yes, server=server)
 
     failed = [i for i in todo if not i.result.get("ok")]
     print(f"\n{len(todo) - len(failed)} imported" + (" (signed only)" if args.no_upload else "")

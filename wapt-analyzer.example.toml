@@ -9,6 +9,11 @@ user = "admin"
 # password_file = "~/.config/wapt-analyzer/password"
 verify_ssl = true          # true, false, or a path to a CA bundle
 workers = 8                # parallel requests when loading host data
+# MFA: when the account requires a TOTP code, it is read from --totp, $WAPT_TOTP or asked (never stored here).
+# TLS client certificate, when the server requires one (nginx client certificate authentication)
+# client_certificate = "~/.config/wapt-analyzer/client.crt"
+# client_private_key = "~/.config/wapt-analyzer/client.pem"   # default: same path with .pem, if it exists
+# client_key_password_file = ""            # chmod 600, for an encrypted key; otherwise $WAPT_CLIENT_KEY_PASSWORD or prompt
 
 [repo]
 # url = "https://wapt.example.org/wapt"   # default: <server.url>/wapt

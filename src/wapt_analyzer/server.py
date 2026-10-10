@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import logging
+import ssl
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import requests
+from requests.adapters import HTTPAdapter
 
 from .fetch import USER_AGENT, Cache
 from .packages import host_os_family
@@ -42,16 +46,63 @@ class Host:
         return cls(**data)
 
 
+def key_is_encrypted(path: str) -> bool:
+    """PEM private key protected by a passphrase (PKCS#8 or legacy OpenSSL format)."""
+    text = Path(path).expanduser().read_text(encoding="ascii", errors="replace")
+    return "-----BEGIN ENCRYPTED PRIVATE KEY-----" in text or "Proc-Type: 4,ENCRYPTED" in text
+
+
+class _ClientCertAdapter(HTTPAdapter):
+    """Present a client certificate whose key stays in memory once unlocked (never written decrypted)."""
+
+    def __init__(self, context: ssl.SSLContext):
+        self._context = context
+        super().__init__()
+
+    def init_poolmanager(self, *args, **kwargs):
+        kwargs["ssl_context"] = self._context
+        return super().init_poolmanager(*args, **kwargs)
+
+    def proxy_manager_for(self, *args, **kwargs):
+        kwargs["ssl_context"] = self._context
+        return super().proxy_manager_for(*args, **kwargs)
+
+
+def make_session(verify=True, client_certificate: str = "", client_private_key: str = "",
+                 key_password: Callable[[], str] | None = None) -> requests.Session:
+    """HTTP session for the WAPT server: TLS verification and optional client certificate.
+
+    ``key_password`` is only called when the client key is encrypted."""
+    session = requests.Session()
+    session.headers["User-Agent"] = USER_AGENT
+    session.verify = verify
+    if client_certificate:
+        cert = str(Path(client_certificate).expanduser())
+        key = str(Path(client_private_key).expanduser()) if client_private_key else None
+        password = key_password() if key_password and key_is_encrypted(key or cert) else None
+        context = ssl.create_default_context(cafile=verify if isinstance(verify, str) else None)
+        if verify is False:
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
+        try:
+            context.load_cert_chain(cert, key, password=password)
+        except ssl.SSLError as e:
+            raise WaptServerError(f"Cannot load the client certificate {cert}: {e.reason or e}") from e
+        session.mount("https://", _ClientCertAdapter(context))
+        log.info("Using client certificate %s", cert)
+    return session
+
+
 class WaptServer:
-    def __init__(self, url: str, user: str, password: str, verify=True, timeout: int = 60):
+    def __init__(self, url: str, user: str, password: str, verify=True, timeout: int = 60,
+                 session: requests.Session | None = None, totp: Callable[[], str] | None = None):
         self.url = url.rstrip("/")
         self.user = user
         self.password = password
         self.verify = verify
         self.timeout = timeout
-        self.session = requests.Session()
-        self.session.headers["User-Agent"] = USER_AGENT
-        self.session.verify = verify
+        self.totp = totp
+        self.session = session or make_session(verify)
 
     def _call(self, method: str, path: str, **kwargs):
         resp = self.session.request(method, f"{self.url}/{path}", timeout=self.timeout, **kwargs)
@@ -63,17 +114,26 @@ class WaptServer:
             raise WaptServerError(f"{path}: HTTP {resp.status_code}: {payload.get('msg') or payload}")
         return payload.get("result")
 
-    def login(self) -> None:
-        resp = self.session.post(f"{self.url}/api/v3/login", json={"user": self.user, "password": self.password},
+    def _post_login(self, password: str) -> requests.Response:
+        return self.session.post(f"{self.url}/api/v3/login", json={"user": self.user, "password": password},
                                  timeout=self.timeout)
+
+    def login(self) -> None:
+        resp = self._post_login(self.password)
         if resp.status_code == 401 and "Missing TOTP" in resp.text:
-            raise WaptServerError("This account requires TOTP (MFA), which is not supported yet.")
+            # Same convention as the WAPT console and wapt-get: the code is appended to the password
+            if self.totp is None:
+                raise WaptServerError("This account requires a TOTP code (MFA)")
+            resp = self._post_login(f"{self.password}{{{self.totp()}}}")
+            hint = ": wrong or expired TOTP code?"
+        else:
+            hint = ""
         try:
             ok = resp.status_code == 200 and resp.json().get("success", False)
         except ValueError:
             ok = False
         if not ok:
-            raise WaptServerError(f"Login failed for {self.user!r} (HTTP {resp.status_code})")
+            raise WaptServerError(f"Login failed for {self.user!r} (HTTP {resp.status_code}){hint}")
         log.info("Logged in to %s as %s", self.url, self.user)
 
     def logout(self) -> None:

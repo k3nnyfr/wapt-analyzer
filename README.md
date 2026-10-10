@@ -72,6 +72,8 @@ Options principales de `wapt-analyzer report` :
 |---|---|
 | `--server URL` | URL du serveur WAPT |
 | `--user`, `--password-file` | Compte admin ; le fichier de mot de passe doit être en `chmod 600` |
+| `--totp` | Code TOTP, si le compte exige la double authentification (sinon `$WAPT_TOTP` ou saisie) |
+| `--client-certificate`, `--client-private-key` | Certificat client, si le serveur en exige un (voir [INSTALL.md](INSTALL.md#certificat-client)) |
 | `--prefix` | Préfixe de vos paquets (ex. `tsi`) |
 | `--repo-url`, `--store-url`, `--store-prefix` | Dépôt local (défaut `<server>/wapt`) et store (défaut Tranquil IT, préfixe `tis`) |
 | `--os` | Familles d'OS analysées : `windows`, `macos`, `linux` (défaut : celles des postes) |
@@ -283,7 +285,8 @@ exclude = ["waptupgrade"]     # nom sans préfixe
 ## Limites
 
 - Le serveur WAPT ne conserve que l'état **actuel** des paquets sur chaque poste. Un paquet désinstallé disparaît de l'inventaire, et l'historique est donc partiel.
-- L'authentification se fait pour l'instant uniquement par login et mot de passe : pas de MFA, pas de certificat client (voir la [roadmap](ROADMAP.md)).
+- L'authentification Kerberos n'est pas prise en charge : login et mot de passe, avec code TOTP et certificat client si le serveur les exige.
+- Le code TOTP ne peut pas être fourni par une tâche planifiée : utilisez un compte sans MFA pour l'automatisation.
 
 ## Développement
 

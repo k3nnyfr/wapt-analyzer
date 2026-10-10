@@ -26,6 +26,10 @@ DEFAULTS: dict = {
         "password_file": "",
         "verify_ssl": True,
         "workers": 8,
+        # TLS client certificate, when the server requires one (nginx client certificate authentication)
+        "client_certificate": "",
+        "client_private_key": "",     # default: client_certificate path with .pem extension if it exists
+        "client_key_password_file": "",  # optional, chmod 600, for an encrypted client key
     },
     "repo": {
         "url": "",  # defaults to <server.url>/wapt
@@ -163,27 +167,56 @@ def _read_secret_file(path: str) -> str:
     return p.read_text(encoding="utf-8").strip()
 
 
-def resolve_key_password(cfg: dict) -> str:
-    """Private key passphrase, asked once: $WAPT_KEY_PASSWORD, a protected passphrase file
-    (signing.key_password_file or $WAPT_KEY_PASSWORD_FILE), then an interactive prompt."""
-    if os.environ.get("WAPT_KEY_PASSWORD") is not None:
-        return os.environ["WAPT_KEY_PASSWORD"]
-    key_pw_file = cfg["signing"].get("key_password_file") or os.environ.get("WAPT_KEY_PASSWORD_FILE")
-    if key_pw_file:
-        return _read_secret_file(key_pw_file)
+def _resolve_secret(env: str, file_value: str, env_file: str, prompt: str, missing: str,
+                    allow_empty: bool = False) -> str:
+    """$ENV, then a protected file (configuration/CLI value, else $ENV_FILE), then an interactive prompt."""
+    value = os.environ.get(env)
+    if value or (allow_empty and value is not None):
+        return value
+    path = file_value or os.environ.get(env_file)
+    if path:
+        return _read_secret_file(path)
     if sys.stdin.isatty():
-        return getpass.getpass(f"Passphrase for {cfg['signing']['private_key']}: ")
-    raise RuntimeError("No key passphrase: set WAPT_KEY_PASSWORD, signing.key_password_file "
-                       "(or WAPT_KEY_PASSWORD_FILE) or run interactively")
+        return getpass.getpass(prompt)
+    raise RuntimeError(missing)
+
+
+def resolve_key_password(cfg: dict) -> str:
+    """Private key passphrase, asked once: $WAPT_KEY_PASSWORD (may be empty), a protected passphrase file
+    (signing.key_password_file or $WAPT_KEY_PASSWORD_FILE), then an interactive prompt."""
+    return _resolve_secret("WAPT_KEY_PASSWORD", cfg["signing"].get("key_password_file"), "WAPT_KEY_PASSWORD_FILE",
+                           f"Passphrase for {cfg['signing']['private_key']}: ",
+                           "No key passphrase: set WAPT_KEY_PASSWORD, signing.key_password_file "
+                           "(or WAPT_KEY_PASSWORD_FILE) or run interactively", allow_empty=True)
 
 
 def resolve_password(cfg: dict) -> str:
     """Password from $WAPT_PASSWORD, then a protected password file, then an interactive prompt."""
-    if os.environ.get("WAPT_PASSWORD"):
-        return os.environ["WAPT_PASSWORD"]
-    pw_file = cfg["server"].get("password_file") or os.environ.get("WAPT_PASSWORD_FILE")
-    if pw_file:
-        return _read_secret_file(pw_file)
-    if sys.stdin.isatty():
-        return getpass.getpass(f"WAPT password for {cfg['server']['user']}@{cfg['server']['url']}: ")
-    raise RuntimeError("No password: set WAPT_PASSWORD, server.password_file or run interactively")
+    return _resolve_secret("WAPT_PASSWORD", cfg["server"].get("password_file"), "WAPT_PASSWORD_FILE",
+                           f"WAPT password for {cfg['server']['user']}@{cfg['server']['url']}: ",
+                           "No password: set WAPT_PASSWORD, server.password_file or run interactively")
+
+
+def resolve_client_key_password(cfg: dict) -> str:
+    """Passphrase of an encrypted TLS client key: $WAPT_CLIENT_KEY_PASSWORD, a protected file
+    (server.client_key_password_file or $WAPT_CLIENT_KEY_PASSWORD_FILE), then an interactive prompt."""
+    return _resolve_secret("WAPT_CLIENT_KEY_PASSWORD", cfg["server"].get("client_key_password_file"),
+                           "WAPT_CLIENT_KEY_PASSWORD_FILE",
+                           f"Passphrase for the client key {cfg['server']['client_private_key']}: ",
+                           "No client key passphrase: set WAPT_CLIENT_KEY_PASSWORD, "
+                           "server.client_key_password_file (or WAPT_CLIENT_KEY_PASSWORD_FILE) or run interactively")
+
+
+def resolve_totp(cfg: dict) -> str:
+    """TOTP code (MFA), asked only when the server requires it: --totp, $WAPT_TOTP, then a prompt.
+
+    A code is valid for about 30 seconds, so it is never read from the configuration file."""
+    code = cfg["server"].get("totp") or os.environ.get("WAPT_TOTP")
+    if not code and sys.stdin.isatty():
+        code = input(f"TOTP code for {cfg['server']['user']}@{cfg['server']['url']}: ")
+    if not code:
+        raise RuntimeError("This account requires a TOTP code: use --totp, WAPT_TOTP or run interactively")
+    code = code.strip()
+    if not (code.isdigit() and len(code) == 6):
+        raise ValueError("A TOTP code is made of 6 digits")
+    return code
