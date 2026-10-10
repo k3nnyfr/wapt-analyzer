@@ -18,7 +18,7 @@ from .packages import host_os_family
 log = logging.getLogger(__name__)
 
 HOST_COLUMNS = ["uuid", "computer_fqdn", "computer_name", "os_name", "os_version", "last_seen_on",
-                "reachable", "connected_users"]
+                "reachable", "connected_users", "depends"]
 
 
 class WaptServerError(RuntimeError):
@@ -33,10 +33,24 @@ class Host:
     last_seen_on: str = ""
     installed_packages: list[dict] = field(default_factory=list)
     installed_softwares: list[dict] = field(default_factory=list)
+    depends: list[str] | None = None    # host package dependencies on the server (None: no host package there)
 
     @property
     def os_family(self) -> str:
         return host_os_family(self.os_name)
+
+    @property
+    def host_package(self) -> dict | None:
+        """Host package installed on the host (its ``depends`` as last applied by the agent)."""
+        return next((p for p in self.installed_packages if p.get("section") == "host"), None)
+
+    def current_depends(self, server: list[str] | None = None) -> list[str]:
+        """Host package dependencies: those on the server (``server``, else ``self.depends``) followed by those
+        of the host package installed on the host, which may be missing from the server."""
+        installed = self.host_package
+        result = list((self.depends if server is None else server) or [])
+        result += [d for d in (installed.get("depends") or [] if installed else []) if d not in result]
+        return result
 
     def to_dict(self) -> dict:
         return self.__dict__.copy()
@@ -145,6 +159,11 @@ class WaptServer:
     def hosts(self) -> list[dict]:
         return self._call("GET", "api/v3/hosts", params={"columns": ",".join(HOST_COLUMNS), "limit": 100000})
 
+    def host_packages(self) -> dict[str, dict]:
+        """Host packages stored on the server (control attributes), by package name (uuid or FQDN)."""
+        rows = self._call("GET", "api/v3/packages", params={"sections": "host"}) or []
+        return {r["package"]: r for r in rows if r.get("package")}
+
     def host_data(self, uuid: str, field_name: str) -> list[dict]:
         return self._call("GET", "api/v3/host_data", params={"uuid": uuid, "field": field_name}) or []
 
@@ -154,8 +173,11 @@ class WaptServer:
 
         def load(row: dict) -> Host:
             name = "".join((row.get("computer_fqdn") or row.get("computer_name") or row["uuid"]).split())
+            depends = row.get("depends")
             host = Host(uuid=row["uuid"], name=name, os_name=(row.get("os_name") or "").strip(),
-                        last_seen_on=row.get("last_seen_on") or "")
+                        last_seen_on=row.get("last_seen_on") or "",
+                        depends=[d.strip() for d in depends.split(",") if d.strip()] if isinstance(depends, str)
+                        else depends if isinstance(depends, list) else None)
             host.installed_packages = self.host_data(host.uuid, "installed_packages")
             host.installed_softwares = self.host_data(host.uuid, "installed_softwares")
             return host
@@ -164,8 +186,10 @@ class WaptServer:
             return list(pool.map(load, rows))
 
 
-def load_inventory(server: WaptServer | None, cache: Cache, workers: int = 8) -> list[Host]:
-    """Fetch the host inventory from the server, or reuse the last snapshot in offline mode."""
+def load_inventory(server: WaptServer | None, cache: Cache, workers: int = 8, session: bool = True) -> list[Host]:
+    """Fetch the host inventory from the server, or reuse the last snapshot in offline mode.
+
+    With ``session=False`` the caller has already logged in and logs out itself."""
     key = "inventory"
     if cache.offline or server is None:
         data = cache.read_json(key)
@@ -173,10 +197,13 @@ def load_inventory(server: WaptServer | None, cache: Cache, workers: int = 8) ->
             raise WaptServerError("Offline mode: no cached inventory, run once online first.")
         log.info("Using cached inventory (%d hosts)", len(data))
         return [Host.from_dict(d) for d in data]
-    server.login()
-    try:
+    if not session:
         hosts = server.collect_hosts(workers=workers)
-    finally:
-        server.logout()
+    else:
+        server.login()
+        try:
+            hosts = server.collect_hosts(workers=workers)
+        finally:
+            server.logout()
     cache.write_json(key, [h.to_dict() for h in hosts])
     return hosts

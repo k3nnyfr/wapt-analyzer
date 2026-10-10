@@ -130,6 +130,7 @@ key_password_file = "~/.config/wapt-analyzer/key-password"
 | `[mappings]` | Corrections manuelles du rapprochement | `"regex" = "paquet"` |
 | `[signing]` | Signature des paquets importés | `certificate`, `private_key`, `key_password_file`, `wapt_python` |
 | `[import]` | Comportement de `import` | `verify`, `dependencies`, `maturity`, `exclude`, `update_exclude`, `work_dir` |
+| `[hosts]` | Comportement de `hosts` | `exclude` |
 | `[cleanup]` | Comportement de `cleanup` | `keep`, `exclude` |
 | `[report]` | Sorties du rapport | `output`, `json`, `csv_dir`, `language` |
 | `[cache]` | Cache local | `directory` |

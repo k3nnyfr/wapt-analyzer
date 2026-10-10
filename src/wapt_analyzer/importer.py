@@ -13,7 +13,7 @@ import ssl
 import subprocess
 import uuid
 import zipfile
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -340,7 +340,7 @@ def default_work_dir(wapt_python: str, cache_dir: Path) -> Path:
     return cache_dir / "import"
 
 
-def _path_converter(wapt_python: str):
+def path_converter(wapt_python: str):
     """A Windows waptpython.exe launched from WSL needs Windows paths."""
     if is_windows_python_from_wsl(wapt_python):
         def convert(p) -> str:
@@ -359,7 +359,7 @@ def sign_packages(items: list[PlannedImport], *, wapt_python: str, certificate: 
 
     Fills ``item.result`` for each item; ``on_start`` / ``on_done`` report progress.
     """
-    conv = _path_converter(wapt_python)
+    conv = path_converter(wapt_python)
     output_dir.mkdir(parents=True, exist_ok=True)
     by_source = {conv(i.download_path): i for i in items}
     spec = {
@@ -372,16 +372,7 @@ def sign_packages(items: list[PlannedImport], *, wapt_python: str, certificate: 
         "verify": verify,
         "jobs": [{"source": src, "output_dir": conv(output_dir)} for src in by_source],
     }
-    proc = subprocess.Popen([wapt_python, conv(HELPER)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE, text=True, encoding="utf-8")
-    assert proc.stdin and proc.stdout
-    proc.stdin.write(json.dumps(spec))
-    proc.stdin.close()
-    for line in proc.stdout:
-        line = line.strip()
-        if not line.startswith("{"):
-            continue
-        res = json.loads(line)
+    for res in run_wapt_helper(wapt_python, spec):
         item = by_source.get(res.get("source"))
         if item is None:
             continue
@@ -401,6 +392,20 @@ def sign_packages(items: list[PlannedImport], *, wapt_python: str, certificate: 
             log.info("Signed %s -> %s", item.entry.filename, res["filename"])
         else:
             log.debug("%s", res.get("trace"))
+
+
+def run_wapt_helper(wapt_python: str, spec: dict) -> Iterator[dict]:
+    """Run wapt_helper.py with waptpython on a JSON job, yielding its JSON events (one process: the key is
+    unlocked once)."""
+    proc = subprocess.Popen([wapt_python, path_converter(wapt_python)(HELPER)], stdin=subprocess.PIPE,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8")
+    assert proc.stdin and proc.stdout
+    proc.stdin.write(json.dumps(spec))
+    proc.stdin.close()
+    for line in proc.stdout:
+        line = line.strip()
+        if line.startswith("{"):
+            yield json.loads(line)
     stderr = proc.stderr.read() if proc.stderr else ""
     code = proc.wait()
     for line in stderr.splitlines():
@@ -457,10 +462,12 @@ class _MultipartFile:
         return out
 
 
-def upload_package(server, path: Path, on_progress: Callable[[int], None] | None = None) -> dict:
-    """Upload one signed package with an authenticated ``WaptServer`` session."""
+def upload_package(server, path: Path, on_progress: Callable[[int], None] | None = None,
+                   endpoint: str = "api/v3/upload_packages") -> dict:
+    """Upload one signed package with an authenticated ``WaptServer`` session (host packages go to
+    ``api/v3/upload_hosts``, which encrypts them for their host when the server is configured so)."""
     body = _MultipartFile(path, on_progress)
-    resp = server.session.post(f"{server.url}/api/v3/upload_packages", data=body,
+    resp = server.session.post(f"{server.url}/{endpoint}", data=body,
                                headers={"Content-Type": body.content_type, "User-Agent": USER_AGENT},
                                timeout=(30, 3600))
     try:

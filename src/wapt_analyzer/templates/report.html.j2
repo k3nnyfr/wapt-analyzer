@@ -119,7 +119,7 @@ details summary { cursor: pointer; }
 .hosts { font-size: 12px; color: var(--muted); text-align: left; max-width: 40ch; white-space: normal; }
 .score { border-radius: 5px; padding: 1px 6px; font-size: 12px; }
 .score.hi { color: var(--ok); } .score.mid { color: var(--warn); }
-.tag { font-size: 11px; border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; margin-left: 6px; color: var(--muted); }
+.tag { font-size: 11px; border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; margin-left: 6px; color: var(--muted); white-space: nowrap; }
 .unfold { color: var(--muted); font-size: 13px; display: flex; gap: 6px; align-items: center; }
 .tag.restricted { color: var(--warn); border-color: var(--warn); }
 .yes { color: var(--ok); } .no { color: var(--muted); }
@@ -176,6 +176,7 @@ footer { margin-top: 32px; color: var(--muted); font-size: 12px; }
   <button role="tab" data-tab="unmatched">Sans équivalent<span class="badge">{{ s.software_unmatched }}</span></button>
   <button role="tab" data-tab="outdated">Mises à jour<span class="badge">{{ s.outdated }}</span></button>
   <button role="tab" data-tab="candidates">Liste d'import<span class="badge">{{ candidates | length }}</span></button>
+  {% if data.host_packages is defined %}<button role="tab" data-tab="hostpkgs">Paquets machine<span class="badge">{{ s.host_packages }}</span></button>{% endif %}
 </nav>
 
 <section class="panel" id="missing">
@@ -233,6 +234,27 @@ footer { margin-top: 32px; color: var(--muted); font-size: 12px; }
     </tbody>
   </table></div>
 </section>
+
+{% if data.host_packages is defined %}
+<section class="panel" id="hostpkgs">
+  <h2>Paquets machine à compléter</h2>
+  <p class="intro">Dépendances à ajouter au paquet machine de chaque poste, sans jamais en retirer : les paquets WAPT installés qu'il ne liste pas (ni dépendance d'un autre paquet, ni fourni par un groupe), puis les paquets du dépôt correspondant à des logiciels installés hors WAPT, pour que WAPT les mette à jour. Application : <code>uv run wapt-analyzer hosts --adopt -i</code>.</p>
+  <div class="scroll"><table id="t-hostpkgs" class="sortable">
+    <thead><tr><th>OS</th><th>Poste</th><th>Paquet machine</th><th>Installés, à ajouter</th><th>Hors WAPT, à reprendre</th><th>Installés, absents du dépôt</th></tr></thead>
+    <tbody>
+    {% for h in data.host_packages %}
+      <tr data-os="{{ h.os }}">{{ os_cell(h.os) }}
+        <td>{{ h.host }}</td>
+        <td data-sort="{{ h.current | length }}">{% if h.missing_on_server %}<span class="tag restricted" title="Installé sur le poste (v{{ h.version }}) mais absent du serveur : à recréer">absent du serveur</span>{% elif not h.exists %}<span class="tag">aucun</span>{% else %}v{{ h.version }}{% endif %}
+          <div class="desc">{{ h.current | length }} dépendance(s)</div></td>
+        <td class="small" data-sort="{{ h.installed | length }}">{% for a in h.installed %}<code title="{{ a.reason }}">{{ a.package }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</td>
+        <td class="small" data-sort="{{ h.adopt | length }}">{% for a in h.adopt %}<code title="{{ a.reason }}">{{ a.package }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</td>
+        <td class="small muted">{{ h.not_in_repo | join(', ') }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</section>
+{% endif %}
 
 <section class="panel" id="candidates">
   <h2>Liste des paquets du store suggérés à l'import</h2>

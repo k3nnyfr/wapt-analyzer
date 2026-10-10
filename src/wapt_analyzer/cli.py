@@ -12,10 +12,11 @@ from pathlib import Path
 import requests
 
 from . import __version__
-from .analysis import analyze, find_updates
+from .analysis import AnalysisResult, analyze, find_updates
 from .cleanup import delete_packages, plan_cleanup
 from .config import load_config, resolve_client_key_password, resolve_key_password, resolve_password, resolve_totp
 from .fetch import USER_AGENT, Cache, fetch_cached
+from .hostpkg import control_for, next_version, plan_hosts, plans_to_dict
 from .importer import (
     ImportFailed,
     collect_trusted_certs,
@@ -23,8 +24,10 @@ from .importer import (
     default_work_dir,
     download_package,
     find_wapt_python,
+    path_converter,
     plan_imports,
     resolve_requests,
+    run_wapt_helper,
     sign_packages,
     upload_package,
 )
@@ -69,6 +72,15 @@ def _common_options() -> argparse.ArgumentParser:
     flt.add_argument("--locale", type=_csv_list, help="Accepted locales (comma separated)")
     flt.add_argument("--cache-dir", help="Cache directory")
     return common
+
+
+def _signing_options(parser: argparse.ArgumentParser) -> argparse._ArgumentGroup:
+    sig = parser.add_argument_group("signing")
+    sig.add_argument("--certificate", help="Signer certificate (.crt)")
+    sig.add_argument("--private-key", help="Private key (.pem, default: certificate path with .pem)")
+    sig.add_argument("--key-password-file", help="File containing the key passphrase (chmod 600)")
+    sig.add_argument("--wapt-python", help="waptpython interpreter of a WAPT agent (default: auto-detect)")
+    return sig
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -119,11 +131,7 @@ def build_parser() -> argparse.ArgumentParser:
     act.add_argument("--no-upload", action="store_true", help="Sign only, keep packages in --output-dir")
     act.add_argument("--output-dir", help="Where signed packages are written (default: <cache>/import/signed)")
     act.add_argument("-y", "--yes", action="store_true", help="Do not ask for confirmation")
-    sig = imp.add_argument_group("signing")
-    sig.add_argument("--certificate", help="Signer certificate (.crt)")
-    sig.add_argument("--private-key", help="Private key (.pem, default: certificate path with .pem)")
-    sig.add_argument("--key-password-file", help="File containing the key passphrase (chmod 600)")
-    sig.add_argument("--wapt-python", help="waptpython interpreter of a WAPT agent (default: auto-detect)")
+    sig = _signing_options(imp)
     sig.add_argument("--set-maturity", help="Maturity of the imported packages (default: keep the store one)")
     act.add_argument("--cleanup", action="store_true",
                      help="After a successful upload, remove the versions superseded by the imported packages")
@@ -135,6 +143,23 @@ def build_parser() -> argparse.ArgumentParser:
     trust.add_argument("--trusted-fingerprint", action="append", metavar="SHA256",
                        help="Trust the certificate with this SHA-256 fingerprint shipped in the source index "
                             "(repeatable; default: Tranquil IT for the Tranquil IT store)")
+
+    hst = sub.add_parser(
+        "hosts", parents=[common],
+        help="Complete the host packages with the packages installed on each host (dry run by default)",
+        description="Add to each host package the WAPT packages installed on the host that it does not list yet "
+                    "(neither dependencies of another package nor provided by a group), and with --adopt the "
+                    "repository packages of software installed outside WAPT. Nothing is ever removed.",
+    )
+    hst.add_argument("names", nargs="*", metavar="HOST", help="Restrict to these hosts (name, FQDN or uuid)")
+    hst.add_argument("--adopt", action="store_true",
+                     help="Also add the repository packages of software installed outside WAPT")
+    hst.add_argument("-i", "--interactive", action="store_true", help="Choose the additions in a checklist")
+    hst.add_argument("--apply", action="store_true", help="Really sign and upload the host packages")
+    hst.add_argument("--no-upload", action="store_true", help="Sign only, keep the host packages in --output-dir")
+    hst.add_argument("-y", "--yes", action="store_true", help="Do not ask for confirmation")
+    hst.add_argument("--output-dir", help="Where host packages are written (default: <cache>/import/hosts)")
+    _signing_options(hst)
 
     cln = sub.add_parser(
         "cleanup", parents=[common],
@@ -247,6 +272,22 @@ def _cache(cfg: dict, offline: bool = False) -> Cache:
     return Cache(Path(cfg["cache"]["directory"]).expanduser(), offline=offline)
 
 
+def run_analysis(cfg: dict, idx: Indexes, hosts: list) -> AnalysisResult:
+    return analyze(
+        idx.repo, idx.store, hosts,
+        store_prefix=cfg["store"]["prefix"],
+        threshold=float(cfg["matching"]["threshold"]),
+        exclude=cfg["matching"]["exclude"],
+        exclude_keys=cfg["matching"]["exclude_keys"],
+        exclude_publishers=cfg["matching"]["exclude_publishers"],
+        mappings=cfg["mappings"],
+        ignore_system_components=cfg["matching"]["ignore_system_components"],
+        updates=find_updates(idx.repo, idx.store_entries, idx.filters, cfg["store"]["prefix"]),
+        fold_profiles=cfg["matching"]["fold_profiles"],
+        fold_publishers=cfg["matching"]["fold_publishers"],
+    )
+
+
 def cmd_report(cfg: dict, args: argparse.Namespace) -> int:
     cache = _cache(cfg, args.offline)
     idx = load_indexes(cfg, cache)
@@ -264,19 +305,7 @@ def cmd_report(cfg: dict, args: argparse.Namespace) -> int:
     if families:
         hosts = [h for h in hosts if h.os_family in families]
 
-    result = analyze(
-        idx.repo, idx.store, hosts,
-        store_prefix=cfg["store"]["prefix"],
-        threshold=float(cfg["matching"]["threshold"]),
-        exclude=cfg["matching"]["exclude"],
-        exclude_keys=cfg["matching"]["exclude_keys"],
-        exclude_publishers=cfg["matching"]["exclude_publishers"],
-        mappings=cfg["mappings"],
-        ignore_system_components=cfg["matching"]["ignore_system_components"],
-        updates=find_updates(idx.repo, idx.store_entries, idx.filters, cfg["store"]["prefix"]),
-        fold_profiles=cfg["matching"]["fold_profiles"],
-        fold_publishers=cfg["matching"]["fold_publishers"],
-    )
+    result = run_analysis(cfg, idx, hosts)
     lang = cfg["report"]["language"]
     context = {
         "server_url": idx.server_url, "repo_url": idx.repo_url, "store_url": idx.store_url,
@@ -285,6 +314,12 @@ def cmd_report(cfg: dict, args: argparse.Namespace) -> int:
         "store_page_url": f"https://wapt.tranquil.it/store/{lang}" if "wapt.tranquil.it" in idx.store_url else "",
     }
     data = to_dict(result, context, lang, restricted_licences=cfg["store"]["restricted_licences"])
+    if prefix:
+        data["host_packages"] = plans_to_dict(plan_hosts(hosts, idx.repo_entries, prefix,
+                                                         unmanaged=result.software_unmanaged,
+                                                         exclude=cfg["hosts"]["exclude"]))
+        data["summary"]["host_packages"] = len([h for h in data["host_packages"]
+                                                if h["installed"] or h["adopt"] or h["missing_on_server"]])
 
     say = (lambda *a: None) if args.quiet else print
     html = render_html(data)
@@ -380,6 +415,127 @@ def run_cleanup(cfg: dict, idx: Indexes, *, names: list[str], apply: bool, yes: 
     for err in errors:
         print(f"  ERROR {err}")
     return 1 if errors or len(deleted) < len(todo) else 0
+
+
+def _host_matches(host, names: list[str]) -> bool:
+    wanted = {n.lower() for n in names}
+    return not wanted or bool({host.name.lower(), host.name.split(".")[0].lower(), host.uuid.lower()} & wanted)
+
+
+def cmd_hosts(cfg: dict, args: argparse.Namespace) -> int:
+    prefix = cfg["repo"]["prefix"]
+    if not prefix:
+        log.error("No prefix: use --prefix or [repo] prefix in the configuration")
+        return 2
+    if args.interactive and not sys.stdin.isatty():
+        log.error("--interactive needs a terminal")
+        return 2
+    cache = _cache(cfg)
+    idx = load_indexes(cfg, cache)
+    server = connect(cfg, idx)
+    server.login()
+    try:
+        hosts = [h for h in load_inventory(server, cache, workers=int(cfg["server"]["workers"]), session=False)
+                 if _host_matches(h, args.names)]
+        if not hosts:
+            log.error("No host matches %s", " ".join(args.names))
+            return 2
+        try:
+            stored = server.host_packages()
+        except WaptServerError as e:   # e.g. encrypted host packages: fall back to the inventory
+            log.warning("Cannot read the host packages from the server (%s): using the inventory", e)
+            stored = {}
+        unmanaged = run_analysis(cfg, idx, hosts).software_unmanaged if args.adopt else []
+        plans = plan_hosts(hosts, idx.repo_entries, prefix, unmanaged=unmanaged, exclude=cfg["hosts"]["exclude"],
+                           server_packages=stored)
+        return _run_hosts(cfg, args, idx, server, plans, stored)
+    finally:
+        server.logout()
+
+
+def _run_hosts(cfg: dict, args: argparse.Namespace, idx: Indexes, server: WaptServer, plans: list,
+               stored: dict) -> int:
+    if args.interactive:
+        choices = [Choice((i, a.package), plan.host.name, (a.package, a.reason), selected=True)
+                   for i, plan in enumerate(plans) for a in plan.additions]
+        if choices:
+            picked = pick(choices, f"Dépendances à ajouter aux paquets machine ({len(choices)})")
+            if picked is None:
+                print("Aborted.")
+                return 1
+            keep = set(picked)
+            for i, plan in enumerate(plans):
+                plan.additions = [a for a in plan.additions if (i, a.package) in keep]
+
+    todo = [p for p in plans if p.needs_upload]
+    print(f"Host packages plan ({len(todo)} to upload, {len(plans) - len(todo)} unchanged):")
+    for plan in plans:
+        if not plan.needs_upload and not plan.not_in_repo:
+            continue
+        os_label = OS_LABELS.get(plan.family, plan.family)
+        if not plan.needs_upload:
+            print(f"  {plan.host.name} ({os_label}): nothing to add")
+        else:
+            if plan.missing_on_server:
+                state = (f"missing from the server (installed v{plan.version}), "
+                         f"recreated as v{next_version(plan.version)}")
+            elif plan.exists:
+                state = f"v{plan.version} -> v{next_version(plan.version)}"
+            else:
+                state = "absent, created"
+            print(f"  {plan.host.name} ({os_label}): host package {state}, "
+                  f"{len(plan.current)} -> {len(plan.depends)} dependencies")
+        for a in plan.additions:
+            print(f"    + {a.package:<32} {a.reason}")
+        if plan.not_in_repo:
+            print(f"    ! installed but missing from the repository: {', '.join(plan.not_in_repo)}")
+    if not todo:
+        return 0
+    if not args.apply:
+        print("Dry run: nothing done. Add --apply to sign and upload the host packages.")
+        return 0
+
+    signing = cfg["signing"]
+    if not signing["certificate"]:
+        log.error("No signer certificate: use --certificate or [signing] certificate")
+        return 2
+    wapt_python = find_wapt_python(signing["wapt_python"])
+    if not args.yes and sys.stdin.isatty():
+        target = "Sign" if args.no_upload else f"Sign and upload to {idx.server_url}"
+        if input(f"{target} {len(todo)} host package(s)? [y/N] ").strip().lower() \
+                not in ("y", "yes", "o", "oui"):
+            print("Aborted.")
+            return 1
+    work_dir = (Path(cfg["import"]["work_dir"]).expanduser() if cfg["import"]["work_dir"]
+                else default_work_dir(wapt_python, Path(cfg["cache"]["directory"]).expanduser()))
+    output_dir = Path(args.output_dir or work_dir / "hosts").expanduser()
+    conv = path_converter(wapt_python)
+    spec = {"certificate": conv(Path(signing["certificate"]).expanduser()),
+            "private_key": conv(Path(signing["private_key"]).expanduser()),
+            "password": resolve_key_password(cfg),
+            "jobs": [{"source": p.host.uuid, "output_dir": conv(output_dir),
+                      "control": control_for(p, stored.get(p.host.uuid) or stored.get(p.host.name))} for p in todo]}
+    failed = 0
+    for res in run_wapt_helper(wapt_python, spec):
+        if "ok" not in res:
+            continue
+        plan = next(p for p in todo if p.host.uuid == res["source"])
+        if not res["ok"]:
+            log.error("%s: %s", plan.host.name, res.get("error"))
+            log.debug("%s", res.get("trace"))
+            failed += 1
+            continue
+        if args.no_upload:
+            print(f"  {plan.host.name}: host package v{res['version']} signed: {output_dir / res['filename']}")
+            continue
+        try:
+            upload_package(server, output_dir / res["filename"], endpoint="api/v3/upload_hosts")
+            print(f"  {plan.host.name}: host package v{res['version']} uploaded ({len(plan.depends)} dependencies)")
+        except (ImportFailed, requests.RequestException) as e:
+            log.error("%s: %s", plan.host.name, e)
+            failed += 1
+    print(f"{len(todo) - failed} host package(s) {'signed' if args.no_upload else 'updated'}, {failed} failed.")
+    return 1 if failed else 0
 
 
 def cmd_cleanup(cfg: dict, args: argparse.Namespace) -> int:
@@ -612,6 +768,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_import(cfg, args)
         if args.command == "cleanup":
             return cmd_cleanup(cfg, args)
+        if args.command == "hosts":
+            return cmd_hosts(cfg, args)
     except (WaptServerError, ImportFailed, NotifyError, RuntimeError, OSError, ValueError) as e:
         log.error("%s", e)
         return 1

@@ -78,6 +78,9 @@ exclude = ["waptupgrade", "waptsetup", "waptagent", "waptserver"]
 # update_exclude = ["vcredist"]
 # work_dir = "~/.cache/wapt-analyzer/import"
 
+[hosts]
+# exclude = ["waptupgrade"]                 # packages (name without prefix) never added to host packages
+
 [cleanup]
 keep = 0                                    # previous versions kept in addition to the latest
 # exclude = ["waptupgrade"]                 # packages (name without prefix) never cleaned

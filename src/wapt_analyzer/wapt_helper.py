@@ -17,6 +17,12 @@ Protocol: a JSON job on stdin, one JSON object per processed package on stdout.
       "verify": "full",                        # "full" (files + control), "control" or "none"
       "jobs": [{"source": "/path/a.wapt", "output_dir": "/path/out"}]
     }
+
+A job with ``control`` instead of a source file builds a host package from its control attributes
+(``build_management_package``, as the WAPT console does), its version incremented (``inc_build``):
+
+    {"source": "<host uuid>", "control": {"package": "<uuid>", "version": "5", "depends": "..."},
+     "output_dir": "/path/out"}
 """
 
 import json
@@ -28,6 +34,7 @@ import traceback
 
 from waptcrypto import SSLCABundle, SSLPrivateKey
 from waptpackage import PackageEntry
+from waptutils import is_pem_key_encrypted
 
 
 def emit(obj):
@@ -93,10 +100,36 @@ def process(job, spec, key, signer_chain, trusted, signers):
         shutil.rmtree(work_dir, ignore_errors=True)
 
 
+def process_host(job, key, signer_chain, signers):
+    source = job["source"]
+    emit({"event": "start", "source": source})
+    try:
+        control = dict(job["control"])
+        os.makedirs(job["output_dir"], exist_ok=True)
+        pe = PackageEntry(package=control.pop("package"), version=control.pop("version") or "0", section="host",
+                          **control)
+        pe.inc_build()
+        emit({"event": "stage", "source": source, "stage": "sign"})
+        path = pe.build_management_package(target_directory=job["output_dir"])
+        pe.sign_package(private_key=key, certificate=signer_chain)
+        check = PackageEntry(waptfile=path)
+        check.check_control_signature(trusted_bundle=signers)
+        emit({"source": source, "ok": True, "package": check.package, "version": check.version,
+              "depends": check.depends, "filename": os.path.basename(path), "path": path,
+              "size": os.path.getsize(path), "signer": check.signer})
+    except Exception as e:
+        emit({"source": source, "ok": False, "error": f"{type(e).__name__}: {e}", "trace": traceback.format_exc()})
+
+
 def main():
     spec = json.load(sys.stdin)
     # The key is decrypted once here and reused for every package of the job
-    key = SSLPrivateKey(spec["private_key"], password=spec.get("password") or "")
+    password = spec.get("password") or None
+    if password is None and is_pem_key_encrypted(spec["private_key"]):
+        # waptcrypto would prompt on the console of this process, which has none: it would hang
+        raise SystemExit(f"The private key {spec['private_key']} is encrypted: a passphrase is required")
+    # None for an unencrypted key: waptcrypto rejects a password, even empty, for such a key
+    key = SSLPrivateKey(spec["private_key"], password=password)
     signers = SSLCABundle()
     signers.add_certificates_from_pem(pem_filename=spec["certificate"], trusted=True)
     signer_chain = signers.certificates()
@@ -109,11 +142,14 @@ def main():
                          "packages with setup.py will fail\n")
 
     trusted = SSLCABundle()
-    for path in spec["trusted_certs"]:
+    for path in spec.get("trusted_certs") or []:
         trusted.add_certificates_from_pem(pem_filename=path, trusted=True)
 
     for job in spec["jobs"]:
-        process(job, spec, key, signer_chain, trusted, signers)
+        if job.get("control") is not None:
+            process_host(job, key, signer_chain, signers)
+        else:
+            process(job, spec, key, signer_chain, trusted, signers)
 
 
 if __name__ == "__main__":
