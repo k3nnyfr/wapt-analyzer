@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.5.0] - 2026-10-10
+
+### Added
+- **Double authentification (TOTP)** : le code est demandé uniquement quand le serveur le réclame, via `--totp`, `$WAPT_TOTP` ou saisie, et transmis comme le font la console WAPT et `wapt-get` (`motdepasse{code}`).
+- **Certificat client TLS** : `[server] client_certificate` / `client_private_key` (`--client-certificate`, `--client-private-key`), présenté pour l'API et l'index du dépôt ; clé chiffrée déverrouillée en mémoire (`$WAPT_CLIENT_KEY_PASSWORD`, `client_key_password_file` ou saisie).
+- Documentation : sections « Double authentification (TOTP) » et « Certificat client » dans `INSTALL.md`, lien vers le miroir GitHub dans le README et `INSTALL.md`.
+
+### Changed
+- `import --apply` se connecte au serveur avant les téléchargements et la signature, et non plus juste avant l'upload, pour qu'un code TOTP soit encore valable.
+
 ## [0.4.2] - 2026-10-10
 
 ### Added

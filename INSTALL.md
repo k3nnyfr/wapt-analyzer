@@ -72,7 +72,7 @@ wapt-analyzer --help
 
 La commande `wapt-analyzer` est alors disponible partout (dans `~/.local/bin`, à ajouter au `PATH` si besoin : `uv tool update-shell`). Dans la suite de la documentation, remplacez `uv run wapt-analyzer` par `wapt-analyzer`.
 
-Pour une version précise : `uv tool install git+https://git.k3nny.fr/k3nny/wapt-analyzer@v0.4.2`.
+Pour une version précise : `uv tool install git+https://git.k3nny.fr/k3nny/wapt-analyzer@v0.5.0`.
 
 ## Fichier de configuration
 

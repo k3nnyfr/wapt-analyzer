@@ -38,9 +38,9 @@
 - [x] Guide d'installation et de configuration (`INSTALL.md`), stockage des secrets
 - [x] Capture d'écran du rapport dans le README, générée à partir de données fictives
 
-## v0.5 — Authentification
-- [ ] Authentification MFA (TOTP)
-- [ ] Authentification par certificat client
+## v0.5.0 — Authentification
+- [x] Authentification MFA (TOTP)
+- [x] Authentification par certificat client
 
 ## Plus tard
 - [ ] Mode planifié (cron) avec envoi du rapport (mail ou webhook)
