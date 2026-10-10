@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.8.0] - 2026-10-10
+
+### Added
+- **Commande `hosts`** : complète le paquet machine de chaque poste avec les paquets WAPT qui y sont installés mais qu'il ne liste pas (ni dépendance d'un autre paquet, ni fournis par un groupe), ramenés à votre préfixe. Aucune dépendance n'est jamais retirée. Simulation par défaut, `--apply` pour signer et envoyer.
+- **Recréation des paquets machine** absents du serveur, à partir des dépendances du paquet machine installé sur le poste, avec la version suivante.
+- **Reprise des logiciels installés hors WAPT** (`hosts --adopt`) : ajout des paquets du dépôt correspondants, pour que WAPT les installe puis les tienne à jour.
+- Paquets machine construits comme dans la console WAPT (attributs du control conservés, version incrémentée), signés avec votre clé et envoyés via `api/v3/upload_hosts` (chiffrement côté serveur conservé) ; `-i` pour choisir les ajouts, `--no-upload` pour signer sans envoyer, `[hosts] exclude`.
+- Onglet **« Paquets machine »** dans le rapport : ajouts proposés par poste, paquets machine absents du serveur, paquets installés absents du dépôt.
+
+### Fixed
+- Signature avec une clé privée non chiffrée : la passphrase vide n'est plus transmise à `waptcrypto`, qui la refusait.
+- Clé chiffrée sans passphrase : erreur explicite au lieu d'un blocage de `waptpython` en attente d'une saisie.
+
+### Changed
+- Capture d'écran du README régénérée.
+
 ## [0.7.0] - 2026-10-10
 
 ### Added

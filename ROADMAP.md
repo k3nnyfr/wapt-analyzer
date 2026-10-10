@@ -49,5 +49,9 @@
 ## v0.7.0 — Sélection interactive
 - [x] Sélection interactive des paquets dans le terminal (`import -i`)
 
+## v0.8.0 — Paquets machine
+- [x] Recréer et compléter les paquets machine à partir des paquets installés sur chaque poste
+- [x] Suggérer les paquets du dépôt pour les logiciels installés hors WAPT, afin de normaliser le parc et suivre leurs mises à jour
+
 ## Plus tard
 - [ ] Publication sur PyPI (`uvx wapt-analyzer`)
