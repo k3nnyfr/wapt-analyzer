@@ -1,8 +1,12 @@
 # wapt-analyzer
 
+<img src="docs/images/wapt-analyzer-logo-128.png" alt="wapt-analyzer logo" width="128">
+
+![release](https://img.shields.io/badge/release-v0.9.0-blue.svg)
+
 Outil en ligne de commande pour entretenir le dépôt de paquets d'un serveur [WAPT](https://www.wapt.fr). Il compare ce dépôt, le store public Tranquil IT et l'inventaire des postes, puis aide à combler les écarts.
 
-Sources : [Gitea](https://git.k3nny.fr/k3nny/wapt-analyzer) (dépôt principal) · [GitHub](https://github.com/k3nnyfr/wapt-analyzer) (miroir) · Licence [GPL-3.0-or-later](LICENSE), comme WAPT.
+**[Documentation](docs/README.md)** · **[Dépôt](https://git.k3nny.fr/k3nny/wapt-analyzer)** · **[Miroir GitHub](https://github.com/k3nnyfr/wapt-analyzer)** · Licence [GPL-3.0-or-later](LICENSE), comme WAPT
 
 ![Rapport de démonstration : onglet « À importer », quatre paquets sélectionnés et la commande d'import correspondante](docs/images/report-import.png)
 
