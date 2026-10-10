@@ -2,7 +2,7 @@
 
 <img src="docs/images/wapt-analyzer-logo-128.png" alt="wapt-analyzer logo" width="128">
 
-![release](https://img.shields.io/badge/release-v0.9.0-blue.svg)
+![release](https://img.shields.io/badge/release-v0.9.1-blue.svg)
 
 Outil en ligne de commande pour entretenir le dépôt de paquets d'un serveur [WAPT](https://www.wapt.fr). Il compare ce dépôt, le store public Tranquil IT et l'inventaire des postes, puis aide à combler les écarts.
 

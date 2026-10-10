@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.9.1] - 2026-10-10
+
+### Added
+- **Logo du projet** dans `docs/images/` (source 512 px, version 128 px affichée en tête du README).
+- Badge de version dans le README.
+
+### Changed
+- En-tête du README : logo, badge et liens (documentation, dépôt, miroir GitHub) sur le modèle du projet Releaser.
+
 ## [0.9.0] - 2026-10-10
 
 ### Added
