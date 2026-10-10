@@ -20,7 +20,7 @@ uv run wapt-analyzer import --from-report wapt-report.json --apply   # … puis 
 uv run wapt-analyzer import --update --apply --cleanup       # 3. mettre à jour et nettoyer les anciennes versions
 ```
 
-Ces exemples supposent le serveur, le compte et le préfixe renseignés dans le [fichier de configuration](#configuration).
+Ces exemples supposent le serveur, le compte et le préfixe renseignés dans le [fichier de configuration](INSTALL.md#fichier-de-configuration).
 
 ## Le rapport
 
@@ -37,30 +37,32 @@ Ces exemples supposent le serveur, le compte et le préfixe renseignés dans le 
 
 Le rapport fait le lien avec `import` : chaque paquet proposé (onglets paquets manquants, à importer, mises à jour, liste d'import) a une case à cocher, et une barre en bas de page affiche la commande `uv run wapt-analyzer import …` correspondant à la sélection, regroupée par OS, prête à copier (avec ou sans `--apply`). Les paquets réservés aux abonnés ne sont pas sélectionnables.
 
+![Rapport de démonstration : onglet « À importer », quatre paquets sélectionnés et la commande d'import correspondante](docs/report.png)
+
+*Rapport généré par [`scripts/demo_report.py`](scripts/demo_report.py) à partir de postes et d'un dépôt fictifs.*
+
 ## Installation
 
-Python 3.10 ou plus récent.
-
-Avec [uv](https://docs.astral.sh/uv/), depuis un clone (l'environnement est créé automatiquement au premier `uv run`) :
+Python 3.10 ou plus récent et [uv](https://docs.astral.sh/uv/) :
 
 ```bash
 git clone https://git.k3nny.fr/k3nny/wapt-analyzer && cd wapt-analyzer
-uv run wapt-analyzer --help
+cp wapt-analyzer.example.toml wapt-analyzer.toml     # puis renseigner serveur, compte et préfixe
+uv run wapt-analyzer report
 ```
 
-Ou en tant qu'outil installé globalement :
-
-```bash
-uv tool install git+https://git.k3nny.fr/k3nny/wapt-analyzer
-wapt-analyzer --help
-```
+Le guide d'installation, [INSTALL.md](INSTALL.md), détaille :
+- l'installation depuis un clone ou en outil global (`uv tool install`), et l'agent WAPT nécessaire à `import` ;
+- le [fichier de configuration](INSTALL.md#fichier-de-configuration) : emplacements, sections, ordre de priorité avec les variables d'environnement ;
+- le stockage du [mot de passe du serveur](INSTALL.md#mot-de-passe-du-serveur-wapt) et de la [passphrase de la clé de signature](INSTALL.md#clé-de-signature-et-passphrase) : variables, fichiers `chmod 600`, cas de WSL.
 
 ## Utilisation
 
 ```bash
-export WAPT_PASSWORD='…'          # sinon le mot de passe est demandé
 uv run wapt-analyzer report --server https://wapt.example.org --user admin --prefix tsi
 ```
+
+Le mot de passe est lu depuis `$WAPT_PASSWORD` ou un fichier protégé, sinon demandé (voir [INSTALL.md](INSTALL.md#mot-de-passe-du-serveur-wapt)).
 
 Options principales de `wapt-analyzer report` :
 
@@ -80,9 +82,7 @@ Options principales de `wapt-analyzer report` :
 
 ### Configuration
 
-Toutes les options peuvent être placées dans un fichier TOML : `./wapt-analyzer.toml`, `~/.config/wapt-analyzer/config.toml` ou le fichier passé avec `-c`. Voir [`wapt-analyzer.example.toml`](wapt-analyzer.example.toml).
-
-Ordre de priorité : valeurs par défaut < fichier < variables d'environnement (`WAPT_SERVER_URL`, `WAPT_USER`, `WAPT_PREFIX`, `WAPT_PASSWORD`, `WAPT_PASSWORD_FILE`, `WAPT_KEY_PASSWORD`, `WAPT_KEY_PASSWORD_FILE`) < ligne de commande.
+Toutes les options peuvent être placées dans un fichier TOML (`./wapt-analyzer.toml`, `~/.config/wapt-analyzer/config.toml` ou `-c FICHIER`), et certaines dans des variables d'environnement. La ligne de commande l'emporte sur l'environnement, qui l'emporte sur le fichier. Voir [INSTALL.md](INSTALL.md#fichier-de-configuration) et [`wapt-analyzer.example.toml`](wapt-analyzer.example.toml).
 
 ### Ajuster le rapprochement
 
@@ -208,7 +208,7 @@ certificate = "/chemin/vers/moncert.crt"
 private_key = "/chemin/vers/moncert.pem"   # défaut : même nom en .pem
 ```
 
-Ordre de recherche de la passphrase : `$WAPT_KEY_PASSWORD`, puis le fichier `key_password_file` (ou `--key-password-file`, ou `$WAPT_KEY_PASSWORD_FILE`), puis saisie interactive. Comme pour le mot de passe du serveur, le fichier doit être en `chmod 600`, sinon il est refusé. Rangez-le hors de tout dossier synchronisé ou sauvegardé avec la clé : la passphrase n'a plus d'intérêt si elle voyage à côté de la clé chiffrée.
+La passphrase est lue depuis `$WAPT_KEY_PASSWORD` ou un fichier `chmod 600`, sinon demandée une seule fois. Voir [INSTALL.md](INSTALL.md#clé-de-signature-et-passphrase) pour l'ordre de recherche et les précautions de stockage.
 
 ### Source et confiance
 
@@ -288,6 +288,7 @@ exclude = ["waptupgrade"]     # nom sans préfixe
 ```bash
 uv run ruff check .
 uv run pytest
+uv run python scripts/demo_report.py -o demo-report.html   # rapport de démonstration, sans serveur
 ```
 
 ## Licence

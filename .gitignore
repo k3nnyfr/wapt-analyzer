@@ -16,5 +16,6 @@ password
 !tests/*.crt
 *.p12
 wapt-report*.html
+demo-report.html
 wapt-report*.json
 csv/
