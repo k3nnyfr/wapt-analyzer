@@ -41,6 +41,15 @@ Sous WSL avec l'agent Windows, l'outil convertit lui-même les chemins (`wslpath
 
 ## Installation
 
+Le code est publié à deux adresses, au contenu identique :
+
+| Dépôt | URL |
+|---|---|
+| Gitea (principal) | `https://git.k3nny.fr/k3nny/wapt-analyzer` |
+| GitHub (miroir) | `https://github.com/k3nnyfr/wapt-analyzer` |
+
+Les exemples ci-dessous utilisent Gitea ; remplacez l'URL par celle de GitHub si vous préférez.
+
 ### Depuis un clone (recommandé)
 
 ```bash
@@ -55,6 +64,7 @@ Le premier `uv run` crée l'environnement virtuel (`.venv/`) et installe les dé
 
 ```bash
 uv tool install git+https://git.k3nny.fr/k3nny/wapt-analyzer
+# ou : uv tool install git+https://github.com/k3nnyfr/wapt-analyzer
 wapt-analyzer --help
 ```
 

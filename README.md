@@ -2,6 +2,8 @@
 
 Outil en ligne de commande pour entretenir le dépôt de paquets d'un serveur [WAPT](https://www.wapt.fr). Il compare ce dépôt, le store public Tranquil IT et l'inventaire des postes, puis aide à combler les écarts.
 
+Sources : [Gitea](https://git.k3nny.fr/k3nny/wapt-analyzer) (dépôt principal) · [GitHub](https://github.com/k3nnyfr/wapt-analyzer) (miroir).
+
 | Commande | Rôle | Écrit sur le serveur ? |
 |---|---|---|
 | [`report`](#le-rapport) | Analyse le parc et produit un rapport : paquets manquants, logiciels installés hors WAPT, mises à jour disponibles | Non, lecture seule |
@@ -43,7 +45,7 @@ Le rapport fait le lien avec `import` : chaque paquet proposé (onglets paquets 
 
 ## Installation
 
-Python 3.10 ou plus récent et [uv](https://docs.astral.sh/uv/) :
+Python 3.10 ou plus récent et [uv](https://docs.astral.sh/uv/) (le miroir GitHub `https://github.com/k3nnyfr/wapt-analyzer` fonctionne aussi) :
 
 ```bash
 git clone https://git.k3nny.fr/k3nny/wapt-analyzer && cd wapt-analyzer
