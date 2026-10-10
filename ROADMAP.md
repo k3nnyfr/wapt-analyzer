@@ -53,5 +53,9 @@
 - [x] Recréer et compléter les paquets machine à partir des paquets installés sur chaque poste
 - [x] Suggérer les paquets du dépôt pour les logiciels installés hors WAPT, afin de normaliser le parc et suivre leurs mises à jour
 
+## v0.8.1 — Documentation
+- [x] Documentation structurée dans `docs/`, README raccourci
+- [x] Captures d'écran régénérables (`scripts/screenshots.py`)
+
 ## Plus tard
 - [ ] Publication sur PyPI (`uvx wapt-analyzer`)

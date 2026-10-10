@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.8.1] - 2026-10-10
+
+### Changed
+- **Documentation restructurée** dans `docs/` : installation, configuration, authentification et secrets, une page par commande (`report`, `import`, `cleanup`, `hosts`, `report --notify`), développement, et un sommaire. `INSTALL.md` est réparti dans ces pages.
+- **README raccourci** : rôle des commandes, démarrage rapide, cycle d'entretien type, liens vers la documentation.
+- Captures d'écran dans `docs/images/`, dont l'onglet « Paquets machine » ; les postes de démonstration ont des paquets machine.
+
+### Added
+- `scripts/screenshots.py` : régénère les captures d'écran à partir du rapport de démonstration (Chrome ou Chromium sans interface, Chrome de Windows depuis WSL).
+- Test des liens entre les pages de documentation (fichiers et ancres).
+
 ## [0.8.0] - 2026-10-10
 
 ### Added
