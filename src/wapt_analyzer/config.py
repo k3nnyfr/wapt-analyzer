@@ -115,6 +115,13 @@ DEFAULTS: dict = {
     "hosts": {
         "exclude": [],                # packages (name without prefix) never added to host packages
     },
+    "groups": {
+        "keep_missing": False,        # recreated groups keep the dependencies absent from the repository
+        "suggest_share": 0.6,         # suggested common base: packages on at least this share of the hosts...
+        "suggest_min_hosts": 3,       # ... and on at least this many hosts
+        "suggest_name": "grp-socle-{os}",
+        "assign_share": 0.8,          # hosts --groups: share of a group's packages already installed
+    },
     "cleanup": {
         "keep": 0,                    # previous versions kept in addition to the latest
         "exclude": [],                # packages (name without prefix) never cleaned

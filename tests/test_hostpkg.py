@@ -32,16 +32,32 @@ def test_rebuild_from_installed():
     plan = plan_host(h, REPO, "tsi")
     assert plan.current == ["tsi-firefox"] and plan.version == "1"
     assert [(a.package, a.reason) for a in plan.additions] == [
+        ("grp-base", "groupe installé"),                        # the installed group joins the host package
         ("tsi-keepassxc", "installé en tant que tis-keepassxc"),  # normalized to your prefix
         ("tsi-teams", "installé"),                              # webview2: dependency of teams, not added
     ]                                                           # 7zip: provided by grp-base
     assert plan.not_in_repo == ["tsi-meshagent"]
-    assert plan.depends == ["tsi-firefox", "tsi-keepassxc", "tsi-teams"]
+    assert plan.depends == ["tsi-firefox", "grp-base", "tsi-keepassxc", "tsi-teams"]
 
 
 def test_group_absent_from_repo_uses_installed_depends():
     h = host(installed("tsi-vlc", "tsi-firefox") + installed("grp-old", section="group", depends=["tsi-vlc"]))
-    assert [a.package for a in plan_host(h, REPO, "tsi").additions] == ["tsi-firefox"]
+    plan = plan_host(h, REPO, "tsi")
+    assert [a.package for a in plan.additions] == ["tsi-firefox"]
+    assert plan.missing_groups == ["grp-old"]     # not added until the groups command recreates it
+
+
+def test_assign_groups():
+    repo = REPO + [pkg("grp-office", section="group", depends="tsi-firefox,tsi-vlc,tsi-7zip,tsi-keepassxc")]
+    h = host(installed("tsi-firefox", "tsi-vlc", "tsi-7zip", "tsi-keepassxc"))
+    assert not [a for a in plan_host(h, repo, "tsi").additions if a.kind == "group"]
+    plan = plan_host(h, repo, "tsi", assign_groups=True)
+    groups = [(a.package, a.reason) for a in plan.additions if a.kind == "group"]
+    assert ("grp-office", "groupe suggéré : 4/4 de ses paquets déjà installés") in groups
+    assert ("grp-base", "groupe suggéré : 1/1 de ses paquets déjà installés") not in groups   # too small
+    assert not [a for a in plan.additions if a.kind == "installed"]   # all provided by grp-office
+    h = host(installed("tsi-firefox", "tsi-vlc"))                         # 2/4: below 80 %
+    assert not [a for a in plan_host(h, repo, "tsi", assign_groups=True).additions if a.kind == "group"]
 
 
 def test_adopt_and_exclude():

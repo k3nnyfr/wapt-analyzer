@@ -121,6 +121,9 @@ details summary { cursor: pointer; }
 .score.hi { color: var(--ok); } .score.mid { color: var(--warn); }
 .tag { font-size: 11px; border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; margin-left: 6px; color: var(--muted); white-space: nowrap; }
 .unfold { color: var(--muted); font-size: 13px; display: flex; gap: 6px; align-items: center; }
+.scroll + h2, .panel > p.muted + h2 { margin-top: 32px; }
+h3 { font-size: 15px; margin: 20px 0 8px; }
+h3 .muted { font-size: 13px; font-weight: normal; }
 .tag.restricted { color: var(--warn); border-color: var(--warn); }
 .yes { color: var(--ok); } .no { color: var(--muted); }
 pre.cmd { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px; overflow-x: auto; white-space: pre-wrap; }
@@ -176,6 +179,7 @@ footer { margin-top: 32px; color: var(--muted); font-size: 12px; }
   <button role="tab" data-tab="unmatched">Sans équivalent<span class="badge">{{ s.software_unmatched }}</span></button>
   <button role="tab" data-tab="outdated">Mises à jour<span class="badge">{{ s.outdated }}</span></button>
   <button role="tab" data-tab="candidates">Liste d'import<span class="badge">{{ candidates | length }}</span></button>
+  {% if data.groups is defined %}<button role="tab" data-tab="groups">Paquets groupe<span class="badge">{{ s.groups }}</span></button>{% endif %}
   {% if data.host_packages is defined %}<button role="tab" data-tab="hostpkgs">Paquets machine<span class="badge">{{ s.host_packages }}</span></button>{% endif %}
 </nav>
 
@@ -235,21 +239,54 @@ footer { margin-top: 32px; color: var(--muted); font-size: 12px; }
   </table></div>
 </section>
 
+{% if data.groups is defined %}
+<section class="panel" id="groups">
+  <h2>Paquets groupe à recréer</h2>
+  <p class="intro">Groupes installés sur des postes mais absents du dépôt, reconstruits à partir de leur version installée la plus récente. Les dépendances absentes du dépôt sont écartées (sauf <code>--keep-missing</code>). Application : <code>uv run wapt-analyzer groups --apply</code>.</p>
+  {% if data.groups.recreate %}
+  <div class="scroll"><table id="t-groups" class="sortable">
+    <thead><tr><th>Groupe</th><th>Version installée</th><th>Dépendances</th><th>Absentes du dépôt</th><th class="num">Postes</th></tr></thead>
+    <tbody>
+    {% for g in data.groups.recreate %}
+      <tr><td><code>{{ g.package }}</code></td><td>v{{ g.version }}</td>
+        <td class="small">{{ g.depends | join(', ') }}</td><td class="small muted">{{ g.missing | join(', ') }}</td>
+        {{ hosts_cell(g.hosts | length, g.hosts) }}</tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}<p class="muted">Aucun : tous les groupes installés sont dans le dépôt.</p>{% endif %}
+
+  <h2>Groupes suggérés</h2>
+  <p class="intro">Par OS, les paquets du dépôt installés sur la plupart des postes et pas encore dans un groupe : un socle commun à déployer d'un bloc. Création : <code>uv run wapt-analyzer groups --create-suggested --apply</code>, puis affectation aux postes : <code>uv run wapt-analyzer hosts --groups</code>.</p>
+  {% for g in data.groups.suggested %}
+  <h3><code>{{ g.package }}</code> <span class="muted">· {{ OS_LABELS.get(g.os, g.os) }}, {{ g.host_count }} postes</span></h3>
+  <div class="scroll"><table class="sortable">
+    <thead><tr><th>Paquet</th><th class="num">Postes équipés</th></tr></thead>
+    <tbody>
+    {% for d in g.depends %}<tr><td><code>{{ d.package }}</code></td><td class="num" data-sort="{{ d.hosts }}">{{ d.hosts }} / {{ g.host_count }}</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}<p class="muted">Aucune suggestion : pas de paquet commun à la plupart des postes hors des groupes existants.</p>
+  {% endfor %}
+</section>
+{% endif %}
+
 {% if data.host_packages is defined %}
 <section class="panel" id="hostpkgs">
   <h2>Paquets machine à compléter</h2>
-  <p class="intro">Dépendances à ajouter au paquet machine de chaque poste, sans jamais en retirer : les paquets WAPT installés qu'il ne liste pas (ni dépendance d'un autre paquet, ni fourni par un groupe), puis les paquets du dépôt correspondant à des logiciels installés hors WAPT, pour que WAPT les mette à jour. Application : <code>uv run wapt-analyzer hosts --adopt -i</code>.</p>
+  <p class="intro">Dépendances à ajouter au paquet machine de chaque poste, sans jamais en retirer : les groupes installés (et les groupes suggérés, dont le poste a déjà la plupart des paquets), les paquets WAPT installés qu'il ne liste pas (ni dépendance d'un autre paquet, ni fourni par un groupe), puis les paquets du dépôt correspondant à des logiciels installés hors WAPT, pour que WAPT les mette à jour. Application : <code>uv run wapt-analyzer hosts --groups --adopt -i</code>.</p>
   <div class="scroll"><table id="t-hostpkgs" class="sortable">
-    <thead><tr><th>OS</th><th>Poste</th><th>Paquet machine</th><th>Installés, à ajouter</th><th>Hors WAPT, à reprendre</th><th>Installés, absents du dépôt</th></tr></thead>
+    <thead><tr><th>OS</th><th>Poste</th><th>Paquet machine</th><th>Groupes</th><th>Installés, à ajouter</th><th>Hors WAPT, à reprendre</th><th>Installés, absents du dépôt</th></tr></thead>
     <tbody>
     {% for h in data.host_packages %}
       <tr data-os="{{ h.os }}">{{ os_cell(h.os) }}
         <td>{{ h.host }}</td>
         <td data-sort="{{ h.current | length }}">{% if h.missing_on_server %}<span class="tag restricted" title="Installé sur le poste (v{{ h.version }}) mais absent du serveur : à recréer">absent du serveur</span>{% elif not h.exists %}<span class="tag">aucun</span>{% else %}v{{ h.version }}{% endif %}
           <div class="desc">{{ h.current | length }} dépendance(s)</div></td>
+        <td class="small" data-sort="{{ h.groups | length }}">{% for a in h.groups %}<code title="{{ a.reason }}">{{ a.package }}</code>{% if 'suggéré' in a.reason %}<span class="tag">suggéré</span>{% endif %}{% if not loop.last %}, {% endif %}{% endfor %}</td>
         <td class="small" data-sort="{{ h.installed | length }}">{% for a in h.installed %}<code title="{{ a.reason }}">{{ a.package }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</td>
         <td class="small" data-sort="{{ h.adopt | length }}">{% for a in h.adopt %}<code title="{{ a.reason }}">{{ a.package }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</td>
-        <td class="small muted">{{ h.not_in_repo | join(', ') }}</td></tr>
+        <td class="small muted">{{ (h.missing_groups + h.not_in_repo) | join(', ') }}</td></tr>
     {% endfor %}
     </tbody>
   </table></div>

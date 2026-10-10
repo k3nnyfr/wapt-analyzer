@@ -81,6 +81,13 @@ exclude = ["waptupgrade", "waptsetup", "waptagent", "waptserver"]
 [hosts]
 # exclude = ["waptupgrade"]                 # packages (name without prefix) never added to host packages
 
+[groups]
+# keep_missing = false                     # recreated groups keep the dependencies absent from the repository
+# suggest_share = 0.6                      # suggested common base: packages on at least 60 % of the hosts...
+# suggest_min_hosts = 3                    # ... and on at least 3 hosts
+# suggest_name = "grp-socle-{os}"          # name of the suggested group, per OS family
+# assign_share = 0.8                       # hosts --groups: share of a group's packages already installed
+
 [cleanup]
 keep = 0                                    # previous versions kept in addition to the latest
 # exclude = ["waptupgrade"]                 # packages (name without prefix) never cleaned

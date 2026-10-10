@@ -16,6 +16,8 @@ from .analysis import AnalysisResult, analyze, find_updates
 from .cleanup import delete_packages, plan_cleanup
 from .config import load_config, resolve_client_key_password, resolve_key_password, resolve_password, resolve_totp
 from .fetch import USER_AGENT, Cache, fetch_cached
+from .grouppkg import GroupPlan, group_control, plan_missing_groups, suggest_groups
+from .grouppkg import add_to_report as add_groups_to_report
 from .hostpkg import add_to_report, control_for, next_version, plan_hosts
 from .importer import (
     ImportFailed,
@@ -154,12 +156,32 @@ def build_parser() -> argparse.ArgumentParser:
     hst.add_argument("names", nargs="*", metavar="HOST", help="Restrict to these hosts (name, FQDN or uuid)")
     hst.add_argument("--adopt", action="store_true",
                      help="Also add the repository packages of software installed outside WAPT")
+    hst.add_argument("--groups", action="store_true",
+                     help="Also add the repository groups whose packages are mostly installed on the host")
     hst.add_argument("-i", "--interactive", action="store_true", help="Choose the additions in a checklist")
     hst.add_argument("--apply", action="store_true", help="Really sign and upload the host packages")
     hst.add_argument("--no-upload", action="store_true", help="Sign only, keep the host packages in --output-dir")
     hst.add_argument("-y", "--yes", action="store_true", help="Do not ask for confirmation")
     hst.add_argument("--output-dir", help="Where host packages are written (default: <cache>/import/hosts)")
     _signing_options(hst)
+
+    grp = sub.add_parser(
+        "groups", parents=[common],
+        help="Recreate the group packages deployed on hosts but gone from the repository, suggest new ones",
+        description="Rebuild each group package installed on hosts and absent from the repository from its highest "
+                    "installed version, and suggest per OS family a common base group of the packages installed on "
+                    "most hosts (--create-suggested to create it). Dry run by default.",
+    )
+    grp.add_argument("names", nargs="*", metavar="GROUP", help="Restrict to these groups")
+    grp.add_argument("--create-suggested", action="store_true", help="Also create the suggested groups")
+    grp.add_argument("--keep-missing", action="store_true",
+                     help="Keep in recreated groups the dependencies absent from the repository")
+    grp.add_argument("-i", "--interactive", action="store_true", help="Choose the groups in a checklist")
+    grp.add_argument("--apply", action="store_true", help="Really sign and upload the group packages")
+    grp.add_argument("--no-upload", action="store_true", help="Sign only, keep the packages in --output-dir")
+    grp.add_argument("-y", "--yes", action="store_true", help="Do not ask for confirmation")
+    grp.add_argument("--output-dir", help="Where group packages are written (default: <cache>/import/groups)")
+    _signing_options(grp)
 
     cln = sub.add_parser(
         "cleanup", parents=[common],
@@ -316,7 +338,9 @@ def cmd_report(cfg: dict, args: argparse.Namespace) -> int:
     data = to_dict(result, context, lang, restricted_licences=cfg["store"]["restricted_licences"])
     if prefix:
         add_to_report(data, plan_hosts(hosts, idx.repo_entries, prefix, unmanaged=result.software_unmanaged,
-                                       exclude=cfg["hosts"]["exclude"]))
+                                       exclude=cfg["hosts"]["exclude"], assign_groups=True,
+                                       assign_share=float(cfg["groups"]["assign_share"])))
+        add_groups_to_report(data, *plan_groups(cfg, idx, hosts))
 
     say = (lambda *a: None) if args.quiet else print
     html = render_html(data)
@@ -444,7 +468,8 @@ def cmd_hosts(cfg: dict, args: argparse.Namespace) -> int:
             stored = {}
         unmanaged = run_analysis(cfg, idx, hosts).software_unmanaged if args.adopt else []
         plans = plan_hosts(hosts, idx.repo_entries, prefix, unmanaged=unmanaged, exclude=cfg["hosts"]["exclude"],
-                           server_packages=stored)
+                           server_packages=stored, assign_groups=args.groups,
+                           assign_share=float(cfg["groups"]["assign_share"]))
         return _run_hosts(cfg, args, idx, server, plans, stored)
     finally:
         server.logout()
@@ -467,7 +492,7 @@ def _run_hosts(cfg: dict, args: argparse.Namespace, idx: Indexes, server: WaptSe
     todo = [p for p in plans if p.needs_upload]
     print(f"Host packages plan ({len(todo)} to upload, {len(plans) - len(todo)} unchanged):")
     for plan in plans:
-        if not plan.needs_upload and not plan.not_in_repo:
+        if not plan.needs_upload and not plan.not_in_repo and not plan.missing_groups:
             continue
         os_label = OS_LABELS.get(plan.family, plan.family)
         if not plan.needs_upload:
@@ -484,6 +509,9 @@ def _run_hosts(cfg: dict, args: argparse.Namespace, idx: Indexes, server: WaptSe
                   f"{len(plan.current)} -> {len(plan.depends)} dependencies")
         for a in plan.additions:
             print(f"    + {a.package:<32} {a.reason}")
+        if plan.missing_groups:
+            print(f"    ! installed groups missing from the repository (recreate them with the groups command): "
+                  f"{', '.join(plan.missing_groups)}")
         if plan.not_in_repo:
             print(f"    ! installed but missing from the repository: {', '.join(plan.not_in_repo)}")
     if not todo:
@@ -492,6 +520,26 @@ def _run_hosts(cfg: dict, args: argparse.Namespace, idx: Indexes, server: WaptSe
         print("Dry run: nothing done. Add --apply to sign and upload the host packages.")
         return 0
 
+    jobs = [ManagementJob(p.host.uuid, p.host.name, "host",
+                          control_for(p, stored.get(p.host.uuid) or stored.get(p.host.name)))
+            for p in todo]
+    return publish_management(cfg, args, idx, server, jobs, kind="host", subdir="hosts",
+                              endpoint="api/v3/upload_hosts")
+
+
+@dataclass
+class ManagementJob:
+    """A host or group package to build from its control attributes."""
+    source: str           # unique key (host uuid, group name)
+    label: str
+    section: str          # host / group
+    control: dict
+    inc: bool = True      # increment the version
+
+
+def publish_management(cfg: dict, args: argparse.Namespace, idx: Indexes, server: WaptServer,
+                       jobs: list[ManagementJob], *, kind: str, subdir: str, endpoint: str) -> int:
+    """Build, sign (WAPT helper, key unlocked once) and upload host or group packages."""
     signing = cfg["signing"]
     if not signing["certificate"]:
         log.error("No signer certificate: use --certificate or [signing] certificate")
@@ -499,40 +547,118 @@ def _run_hosts(cfg: dict, args: argparse.Namespace, idx: Indexes, server: WaptSe
     wapt_python = find_wapt_python(signing["wapt_python"])
     if not args.yes and sys.stdin.isatty():
         target = "Sign" if args.no_upload else f"Sign and upload to {idx.server_url}"
-        if input(f"{target} {len(todo)} host package(s)? [y/N] ").strip().lower() \
-                not in ("y", "yes", "o", "oui"):
+        if input(f"{target} {len(jobs)} {kind} package(s)? [y/N] ").strip().lower() not in ("y", "yes", "o", "oui"):
             print("Aborted.")
             return 1
     work_dir = (Path(cfg["import"]["work_dir"]).expanduser() if cfg["import"]["work_dir"]
                 else default_work_dir(wapt_python, Path(cfg["cache"]["directory"]).expanduser()))
-    output_dir = Path(args.output_dir or work_dir / "hosts").expanduser()
+    output_dir = Path(args.output_dir or work_dir / subdir).expanduser()
     conv = path_converter(wapt_python)
+    by_source = {j.source: j for j in jobs}
     spec = {"certificate": conv(Path(signing["certificate"]).expanduser()),
             "private_key": conv(Path(signing["private_key"]).expanduser()),
             "password": resolve_key_password(cfg),
-            "jobs": [{"source": p.host.uuid, "output_dir": conv(output_dir),
-                      "control": control_for(p, stored.get(p.host.uuid) or stored.get(p.host.name))} for p in todo]}
+            "jobs": [{"source": j.source, "section": j.section, "inc": j.inc, "control": j.control,
+                      "output_dir": conv(output_dir)} for j in jobs]}
     failed = 0
     for res in run_wapt_helper(wapt_python, spec):
-        if "ok" not in res:
+        job = by_source.get(res.get("source"))
+        if job is None or "ok" not in res:
             continue
-        plan = next(p for p in todo if p.host.uuid == res["source"])
         if not res["ok"]:
-            log.error("%s: %s", plan.host.name, res.get("error"))
+            log.error("%s: %s", job.label, res.get("error"))
             log.debug("%s", res.get("trace"))
             failed += 1
             continue
+        path = output_dir / res["filename"]
         if args.no_upload:
-            print(f"  {plan.host.name}: host package v{res['version']} signed: {output_dir / res['filename']}")
+            print(f"  {job.label}: {kind} package v{res['version']} signed: {path}")
             continue
         try:
-            upload_package(server, output_dir / res["filename"], endpoint="api/v3/upload_hosts")
-            print(f"  {plan.host.name}: host package v{res['version']} uploaded ({len(plan.depends)} dependencies)")
+            upload_package(server, path, endpoint=endpoint)
+            deps = len([d for d in (res.get("depends") or "").split(",") if d])
+            print(f"  {job.label}: {kind} package v{res['version']} uploaded ({deps} dependencies)")
         except (ImportFailed, requests.RequestException) as e:
-            log.error("%s: %s", plan.host.name, e)
+            log.error("%s: %s", job.label, e)
             failed += 1
-    print(f"{len(todo) - failed} host package(s) {'signed' if args.no_upload else 'updated'}, {failed} failed.")
+    print(f"{len(jobs) - failed} {kind} package(s) {'signed' if args.no_upload else 'uploaded'}, {failed} failed.")
     return 1 if failed else 0
+
+
+def plan_groups(cfg: dict, idx: Indexes, hosts: list) -> tuple[list[GroupPlan], list[GroupPlan]]:
+    g = cfg["groups"]
+    recreate = plan_missing_groups(hosts, idx.repo_entries, keep_missing=bool(g["keep_missing"]))
+    suggested = suggest_groups(hosts, idx.repo_entries, cfg["repo"]["prefix"], extra_groups=recreate,
+                               min_share=float(g["suggest_share"]), min_hosts=int(g["suggest_min_hosts"]),
+                               name=g["suggest_name"])
+    return recreate, suggested
+
+
+def cmd_groups(cfg: dict, args: argparse.Namespace) -> int:
+    if not cfg["repo"]["prefix"]:
+        log.error("No prefix: use --prefix or [repo] prefix in the configuration")
+        return 2
+    if args.interactive and not sys.stdin.isatty():
+        log.error("--interactive needs a terminal")
+        return 2
+    if args.keep_missing:
+        cfg["groups"]["keep_missing"] = True
+    cache = _cache(cfg)
+    idx = load_indexes(cfg, cache)
+    server = connect(cfg, idx)
+    server.login()
+    try:
+        hosts = load_inventory(server, cache, workers=int(cfg["server"]["workers"]), session=False)
+        families = cfg["filters"]["families"]
+        if families:
+            hosts = [h for h in hosts if h.os_family in families]
+        recreate, suggested = plan_groups(cfg, idx, hosts)
+        if args.names:
+            recreate = [p for p in recreate if p.package in args.names]
+            suggested = [p for p in suggested if p.package in args.names]
+        return _run_groups(cfg, args, idx, server, recreate, suggested)
+    finally:
+        server.logout()
+
+
+def _run_groups(cfg: dict, args: argparse.Namespace, idx: Indexes, server: WaptServer,
+                recreate: list[GroupPlan], suggested: list[GroupPlan]) -> int:
+    print(f"Groups to recreate ({len(recreate)}): installed on hosts, absent from the repository")
+    for p in recreate:
+        version = f"v{p.version} -> v{next_version(p.version)}" if p.changed else f"v{p.version}"
+        print(f"  {p.package} {version}, {len(p.depends)} dependencies, installed on {len(p.hosts)} host(s): "
+              f"{', '.join(p.hosts)}")
+        if p.missing:
+            print(f"    ! left out, absent from the repository: {', '.join(p.missing)}")
+    print(f"Suggested groups ({len(suggested)}): packages installed on most hosts of an OS family")
+    for p in suggested:
+        print(f"  {p.package} ({OS_LABELS.get(p.family, p.family)}, {len(p.hosts)} hosts):")
+        for d in p.depends:
+            print(f"    + {d:<32} {p.counts.get(d, 0)}/{len(p.hosts)} hosts")
+    todo = recreate + (suggested if args.create_suggested else [])
+    if args.interactive and todo:
+        choices = [Choice(p.package, p.package,
+                          ("à recréer" if p.kind == "recreate" else "suggéré", f"{len(p.depends)} dépendance(s)",
+                           ", ".join(p.depends)), selected=True) for p in todo]
+        picked = pick(choices, f"Paquets groupe à publier ({len(choices)})")
+        if picked is None:
+            print("Aborted.")
+            return 1
+        todo = [p for p in todo if p.package in picked]
+    if not todo:
+        return 0
+    if not args.apply:
+        print("Dry run: nothing done. Add --apply to sign and upload"
+              + (" (and --create-suggested for the suggested groups)." if suggested and not args.create_suggested
+                 else "."))
+        return 0
+    jobs = [ManagementJob(p.package, p.package, "group", group_control(p), inc=p.changed or p.kind == "suggested")
+            for p in todo]
+    code = publish_management(cfg, args, idx, server, jobs, kind="group", subdir="groups",
+                              endpoint="api/v3/upload_packages")
+    if suggested and args.create_suggested and not code and not args.no_upload:
+        print("Assign the new groups to hosts with: uv run wapt-analyzer hosts --groups")
+    return code
 
 
 def cmd_cleanup(cfg: dict, args: argparse.Namespace) -> int:
@@ -767,6 +893,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_cleanup(cfg, args)
         if args.command == "hosts":
             return cmd_hosts(cfg, args)
+        if args.command == "groups":
+            return cmd_groups(cfg, args)
     except (WaptServerError, ImportFailed, NotifyError, RuntimeError, OSError, ValueError) as e:
         log.error("%s", e)
         return 1

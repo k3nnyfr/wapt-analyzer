@@ -56,11 +56,12 @@ key_password_file = "~/.config/wapt-analyzer/key-password"
 | `[signing]` | Signature des paquets importés | `certificate`, `private_key`, `key_password_file`, `wapt_python` |
 | `[import]` | Comportement de `import` | `verify`, `dependencies`, `maturity`, `exclude`, `update_exclude`, `work_dir` |
 | `[hosts]` | Comportement de `hosts` | `exclude` |
+| `[groups]` | Comportement de `groups` et `hosts --groups` | `keep_missing`, `suggest_share`, `suggest_min_hosts`, `suggest_name`, `assign_share` |
 | `[cleanup]` | Comportement de `cleanup` | `keep`, `exclude` |
 | `[report]` | Sorties du rapport | `output`, `json`, `csv_dir`, `language` |
 | `[cache]` | Cache local | `directory` |
 
-Le rôle détaillé des options est décrit avec chaque commande : [rapport](report.md), [import](import.md), [nettoyage](cleanup.md), [paquets machine](hosts.md), [notifications](scheduling.md). Les secrets ont leur page : [Authentification et secrets](secrets.md).
+Le rôle détaillé des options est décrit avec chaque commande : [rapport](report.md), [import](import.md), [nettoyage](cleanup.md), [paquets groupe](groups.md), [paquets machine](hosts.md), [notifications](scheduling.md). Les secrets ont leur page : [Authentification et secrets](secrets.md).
 
 Les chemins de fichiers acceptent `~`.
 

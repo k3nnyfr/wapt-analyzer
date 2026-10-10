@@ -14,6 +14,8 @@ from pathlib import Path
 from wapt_analyzer.analysis import analyze, find_updates
 from wapt_analyzer.config import DEFAULTS
 from wapt_analyzer.fetch import Cache, fetch_cached
+from wapt_analyzer.grouppkg import add_to_report as add_groups_to_report
+from wapt_analyzer.grouppkg import plan_missing_groups, suggest_groups
 from wapt_analyzer.hostpkg import add_to_report, plan_hosts
 from wapt_analyzer.packages import (
     PackageEntry,
@@ -134,6 +136,11 @@ def build_hosts(rng: random.Random) -> list[Host]:
                 if rng.random() <= share:
                     host.installed_packages.append({"package": package, "version": version, "section": "base",
                                                     "install_status": "OK"})
+        if os_name.startswith("Windows") and rng.random() < 0.4:   # a group gone from the repository
+            host.installed_packages.append({"package": "grp-bureautique", "version": "4", "section": "group",
+                                            "architecture": "all", "depends": [
+                                                f"{PREFIX}-libreoffice-fresh", f"{PREFIX}-greenshot",
+                                                f"{PREFIX}-pdfcreator"]})
         add_host_package(host, rng)
         hosts.append(host)
     return hosts
@@ -163,7 +170,10 @@ def main() -> None:
         "store_page_url": "https://wapt.tranquil.it/store/fr",
     }
     data = to_dict(result, context, restricted_licences=DEFAULTS["store"]["restricted_licences"])
-    add_to_report(data, plan_hosts(hosts, local_entries, PREFIX, unmanaged=result.software_unmanaged))
+    add_to_report(data, plan_hosts(hosts, local_entries, PREFIX, unmanaged=result.software_unmanaged,
+                                   assign_groups=True))
+    recreate = plan_missing_groups(hosts, local_entries)
+    add_groups_to_report(data, recreate, suggest_groups(hosts, local_entries, PREFIX, extra_groups=recreate))
     write_html(data, Path(args.output))
     print(f"Demo report: {args.output}")
 

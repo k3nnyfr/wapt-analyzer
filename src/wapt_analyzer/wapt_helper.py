@@ -18,11 +18,12 @@ Protocol: a JSON job on stdin, one JSON object per processed package on stdout.
       "jobs": [{"source": "/path/a.wapt", "output_dir": "/path/out"}]
     }
 
-A job with ``control`` instead of a source file builds a host package from its control attributes
-(``build_management_package``, as the WAPT console does), its version incremented (``inc_build``):
+A job with ``control`` instead of a source file builds a host or group package from its control attributes
+(``build_management_package``, as the WAPT console does), its version incremented (``inc_build``) unless
+``inc`` is false:
 
-    {"source": "<host uuid>", "control": {"package": "<uuid>", "version": "5", "depends": "..."},
-     "output_dir": "/path/out"}
+    {"source": "<host uuid>", "section": "host", "inc": true,
+     "control": {"package": "<uuid>", "version": "5", "depends": "..."}, "output_dir": "/path/out"}
 """
 
 import json
@@ -106,9 +107,10 @@ def process_host(job, key, signer_chain, signers):
     try:
         control = dict(job["control"])
         os.makedirs(job["output_dir"], exist_ok=True)
-        pe = PackageEntry(package=control.pop("package"), version=control.pop("version") or "0", section="host",
-                          **control)
-        pe.inc_build()
+        pe = PackageEntry(package=control.pop("package"), version=control.pop("version") or "0",
+                          section=job.get("section") or "host", **control)
+        if job.get("inc", True):
+            pe.inc_build()
         emit({"event": "stage", "source": source, "stage": "sign"})
         path = pe.build_management_package(target_directory=job["output_dir"])
         pe.sign_package(private_key=key, certificate=signer_chain)

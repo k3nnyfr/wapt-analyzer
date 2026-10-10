@@ -28,6 +28,7 @@ SHOTS = {
                                     ".forEach((c, i) => { if (i < 4) { c.checked = true;"
                                     " c.dispatchEvent(new Event('change')); } });"),
     "report-hosts.png": ("hostpkgs", ""),
+    "report-groups.png": ("groups", ""),
 }
 
 

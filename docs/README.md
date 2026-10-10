@@ -17,6 +17,7 @@
 | [Le rapport](report.md) | `report` | Onglets du rapport, options, rapprochement logiciel ↔ paquet, multi-OS |
 | [Importer et mettre à jour](import.md) | `import` | Import depuis le store, mises à jour, sélection interactive, signature, confiance dans la source |
 | [Nettoyer le dépôt](cleanup.md) | `cleanup` | Suppression des versions qu'aucun poste ne peut plus installer |
+| [Paquets groupe](groups.md) | `groups` | Recréer les groupes déployés mais disparus du dépôt, suggérer un groupe « socle commun » par OS |
 | [Paquets machine](hosts.md) | `hosts` | Recréer et compléter les paquets machine, reprendre les logiciels installés hors WAPT |
 | [Rapport planifié et notifications](scheduling.md) | `report --notify` | Envoi par mail et webhook, cron, timer systemd, WSL |
 

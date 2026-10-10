@@ -7,7 +7,9 @@ so WAPT does not keep them in its desired state. Two kinds of additions are prop
 - ``installed``: WAPT packages installed on the host, available in the repository with your prefix, that are
   neither pulled by another package (dependency) nor provided by a group package;
 - ``adopt``: software installed outside WAPT for which the repository has a package (report tab
-  « Hors WAPT »): once in the host package, WAPT installs and then updates it.
+  « Hors WAPT »): once in the host package, WAPT installs and then updates it;
+- ``group``: group packages installed on the host and present in the repository, and with ``assign_groups``
+  the repository groups whose packages are mostly installed on the host already.
 """
 
 from __future__ import annotations
@@ -35,6 +37,7 @@ class HostPlan:
     version: str = ""                                    # current host package version ("" if none)
     additions: list[Addition] = field(default_factory=list)
     not_in_repo: list[str] = field(default_factory=list)  # explicit installed packages missing from the repo
+    missing_groups: list[str] = field(default_factory=list)  # installed groups missing from the repo
     on_server: bool | None = None                         # host package present on the server (None: unknown)
 
     @property
@@ -55,7 +58,7 @@ class HostPlan:
         return self.current + [a.package for a in self.additions if a.package not in self.current]
 
 
-def _base(name: str) -> str:
+def base_name(name: str) -> str:
     """Package name without prefix and version constraint: ``tis-firefox(>=1.0)`` -> ``firefox``."""
     name = name.split("(")[0].strip()
     return split_package_name(name)[1] if "-" in name else name
@@ -65,7 +68,7 @@ def _depends(entry: PackageEntry) -> list[str]:
     return [d for d in (entry.get("depends") or "").split(",") if d.strip()]
 
 
-class _Repo:
+class RepoView:
     """Repository packages of one OS family, by base name: your prefix first."""
 
     def __init__(self, entries: Iterable[PackageEntry], family: str, prefix: str,
@@ -75,7 +78,7 @@ class _Repo:
         self.installed: dict[str, list[str]] = {}
         for name, deps in (installed or {}).items():
             self.installed[name] = deps
-            self.installed.setdefault(_base(name), deps)
+            self.installed.setdefault(base_name(name), deps)
         self.by_base: dict[str, PackageEntry] = {}
         self.groups: dict[str, PackageEntry] = {}
         for e in entries:
@@ -104,10 +107,10 @@ class _Repo:
         while stack:
             name = stack.pop()
             name = name.split("(")[0].strip()
-            entry = self.groups.get(name) or self.by_base.get(_base(name))
-            deps = _depends(entry) if entry else self.installed.get(name) or self.installed.get(_base(name)) or []
+            entry = self.groups.get(name) or self.by_base.get(base_name(name))
+            deps = _depends(entry) if entry else self.installed.get(name) or self.installed.get(base_name(name)) or []
             for dep in deps:
-                b = _base(dep)
+                b = base_name(dep)
                 if b not in seen:
                     seen.add(b)
                     stack.append(dep)
@@ -116,11 +119,11 @@ class _Repo:
 
 def plan_host(host: Host, repo_entries: list[PackageEntry], prefix: str, *, unmanaged: list[SoftwareGroup] = (),
               exclude: Iterable[str] = (), version: str = "", current: list[str] | None = None,
-              on_server: bool | None = None) -> HostPlan:
+              on_server: bool | None = None, assign_groups: bool = False, assign_share: float = 0.8) -> HostPlan:
     family = host.os_family
     installed_depends = {p["package"]: list(p.get("depends") or []) for p in host.installed_packages
                          if p.get("package") and p.get("section") in ("base", "group")}
-    repo = _Repo(repo_entries, family, prefix, installed_depends)
+    repo = RepoView(repo_entries, family, prefix, installed_depends)
     current = host.current_depends(current)
     installed = host.host_package
     if not version and installed:
@@ -130,12 +133,33 @@ def plan_host(host: Host, repo_entries: list[PackageEntry], prefix: str, *, unma
 
     base_rows = [p for p in host.installed_packages if p.get("section") == "base" and p.get("package")]
     groups = [p["package"] for p in host.installed_packages if p.get("section") == "group" and p.get("package")]
-    # Already wanted: the current depends, what they pull, and what the installed groups provide
-    covered = {_base(d) for d in current} | repo.closure(current) | repo.closure(groups)
+    current_names = {d.split("(")[0].strip() for d in current}
+
+    # Groups first: the packages they provide are not added one by one
+    for name in sorted(set(groups) - current_names):
+        if name in repo.groups:
+            plan.additions.append(Addition(name, "group", "groupe installé"))
+        else:
+            plan.missing_groups.append(name)   # to recreate with the groups command first
+    if assign_groups:
+        installed_bases = {base_name(r["package"]) for r in base_rows}
+        for name, entry in sorted(repo.groups.items()):
+            deps = {base_name(d) for d in _depends(entry)}
+            if name in current_names or name in groups or len(deps) < 2:
+                continue
+            have = len(deps & installed_bases)
+            if have / len(deps) >= assign_share:
+                plan.additions.append(Addition(name, "group", f"groupe suggéré : {have}/{len(deps)} de ses paquets "
+                                                              "déjà installés"))
+    added_groups = [a.package for a in plan.additions if a.kind == "group"]
+
+    # Already wanted: the current depends, what they pull, and what the groups provide
+    covered = ({base_name(d) for d in current} | repo.closure(current) | repo.closure(groups)
+               | repo.closure(added_groups))
     added: set[str] = set()
 
     for row in sorted(base_rows, key=lambda r: r["package"]):
-        name, base = row["package"], _base(row["package"])
+        name, base = row["package"], base_name(row["package"])
         others = [r["package"] for r in base_rows if r is not row]
         if base in covered or base in added or base in excluded or base in repo.closure(others):
             continue  # already wanted, or installed as a dependency of another package
@@ -161,7 +185,8 @@ def plan_host(host: Host, repo_entries: list[PackageEntry], prefix: str, *, unma
 
 def plan_hosts(hosts: list[Host], repo_entries: list[PackageEntry], prefix: str, *,
                unmanaged: list[SoftwareGroup] = (), exclude: Iterable[str] = (),
-               server_packages: dict[str, dict] | None = None) -> list[HostPlan]:
+               server_packages: dict[str, dict] | None = None, assign_groups: bool = False,
+               assign_share: float = 0.8) -> list[HostPlan]:
     """One plan per host; ``server_packages`` (from the server API) gives the current version and depends.
 
     Without it, a host package is deemed missing from the server when the server lists no dependency for the
@@ -181,7 +206,8 @@ def plan_hosts(hosts: list[Host], repo_entries: list[PackageEntry], prefix: str,
             current = [d.strip() for d in deps.split(",") if d.strip()] if isinstance(deps, str) else list(deps)
             version = str(stored.get("version") or "")
         plans.append(plan_host(host, repo_entries, prefix, unmanaged=unmanaged, exclude=exclude,
-                               version=version, current=current, on_server=on_server))
+                               version=version, current=current, on_server=on_server,
+                               assign_groups=assign_groups, assign_share=assign_share))
     return plans
 
 
@@ -226,5 +252,6 @@ def plans_to_dict(plans: list[HostPlan]) -> list[dict]:
         "current": p.current,
         "installed": [{"package": a.package, "reason": a.reason} for a in p.additions if a.kind == "installed"],
         "adopt": [{"package": a.package, "reason": a.reason} for a in p.additions if a.kind == "adopt"],
-        "not_in_repo": p.not_in_repo, "missing_on_server": p.missing_on_server,
-    } for p in plans if p.needs_upload or p.not_in_repo]
+        "groups": [{"package": a.package, "reason": a.reason} for a in p.additions if a.kind == "group"],
+        "not_in_repo": p.not_in_repo, "missing_groups": p.missing_groups, "missing_on_server": p.missing_on_server,
+    } for p in plans if p.needs_upload or p.not_in_repo or p.missing_groups]

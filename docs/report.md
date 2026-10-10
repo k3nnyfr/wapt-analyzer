@@ -12,7 +12,8 @@
 | **Sans équivalent** | Logiciels pour lesquels aucun paquet n'a été identifié |
 | **Mises à jour** | Paquets du dépôt dont la version amont est plus ancienne que celle du store |
 | **Liste d'import** | Liste consolidée des paquets du store à importer |
-| **Paquets machine** | Dépendances à ajouter au paquet machine de chaque poste, paquets machine absents du serveur (voir [`hosts`](hosts.md)) |
+| **Paquets groupe** | Groupes installés sur les postes mais absents du dépôt, groupes « socle commun » suggérés (voir [`groups`](groups.md)) |
+| **Paquets machine** | Dépendances à ajouter au paquet machine de chaque poste (groupes, paquets installés, logiciels hors WAPT), paquets machine absents du serveur (voir [`hosts`](hosts.md)) |
 
 Le rapport fait le lien avec `import` : chaque paquet proposé (onglets paquets manquants, à importer, mises à jour, liste d'import) a une case à cocher, et une barre en bas de page affiche la commande `uv run wapt-analyzer import …` correspondant à la sélection, regroupée par OS, prête à copier (avec ou sans `--apply`). Les paquets réservés aux abonnés ne sont pas sélectionnables.
 
