@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import shutil
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -82,7 +83,26 @@ def _signing_options(parser: argparse.ArgumentParser) -> argparse._ArgumentGroup
     sig.add_argument("--private-key", help="Private key (.pem, default: certificate path with .pem)")
     sig.add_argument("--key-password-file", help="File containing the key passphrase (chmod 600)")
     sig.add_argument("--wapt-python", help="waptpython interpreter of a WAPT agent (default: auto-detect)")
+    sig.add_argument("--keep-files", action="store_true", default=None,
+                     help="Keep the downloaded and signed packages after the upload (default: deleted)")
     return sig
+
+
+def _work_dir(cfg: dict, wapt_python: str) -> Path:
+    if cfg["import"]["work_dir"]:
+        return Path(cfg["import"]["work_dir"]).expanduser()
+    return default_work_dir(wapt_python, Path(cfg["cache"]["directory"]).expanduser())
+
+
+def _purge(*paths: Path | None) -> None:
+    """Delete local package files once uploaded: downloads and signed packages fill the disk quickly."""
+    for path in paths:
+        if path is None:
+            continue
+        try:
+            path.unlink(missing_ok=True)
+        except OSError as e:
+            log.warning("Cannot delete %s: %s", path, e)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -196,6 +216,17 @@ def build_parser() -> argparse.ArgumentParser:
                      help="Also clean packages that do not carry your prefix")
     cln.add_argument("--apply", action="store_true", help="Really delete (default: dry run)")
     cln.add_argument("-y", "--yes", action="store_true", help="Do not ask for confirmation")
+
+    prg = sub.add_parser(
+        "purge",
+        help="Delete the downloaded and signed packages left in the work directory (dry run by default)",
+        description="Empty the downloads/, signed/, hosts/ and groups/ subdirectories of the work directory "
+                    "([import] work_dir). The trusted certificates are kept.",
+    )
+    prg.add_argument("--cache-dir", help="Cache directory")
+    prg.add_argument("--wapt-python", help="waptpython interpreter of a WAPT agent (default: auto-detect)")
+    prg.add_argument("--apply", action="store_true", help="Really delete (default: dry run)")
+    prg.add_argument("-y", "--yes", action="store_true", help="Do not ask for confirmation")
     return parser
 
 
@@ -214,6 +245,7 @@ def apply_args(cfg: dict, args: argparse.Namespace) -> dict:
         "certificate": ("signing", "certificate"), "private_key": ("signing", "private_key"),
         "key_password_file": ("signing", "key_password_file"), "wapt_python": ("signing", "wapt_python"),
         "set_maturity": ("import", "maturity"), "verify": ("import", "verify"), "keep": ("cleanup", "keep"),
+        "keep_files": ("import", "keep_files"),
     }
     for attr, (section, key) in mapping.items():
         value = getattr(args, attr, None)
@@ -223,11 +255,11 @@ def apply_args(cfg: dict, args: argparse.Namespace) -> dict:
         cfg["store"]["trusted_certs"] = args.trusted_cert
     if getattr(args, "trusted_fingerprint", None):
         cfg["store"]["trusted_fingerprints"] = args.trusted_fingerprint
-    if args.arch is not None:
+    if getattr(args, "arch", None) is not None:
         cfg["filters"]["architectures"] = {f: args.arch for f in OS_FAMILIES}
-    if args.insecure:
+    if getattr(args, "insecure", False):
         cfg["server"]["verify_ssl"] = False
-    elif args.ca_bundle:
+    elif getattr(args, "ca_bundle", None):
         cfg["server"]["verify_ssl"] = args.ca_bundle
     client_cert = cfg["server"]["client_certificate"]
     if client_cert and not cfg["server"]["client_private_key"]:
@@ -550,8 +582,7 @@ def publish_management(cfg: dict, args: argparse.Namespace, idx: Indexes, server
         if input(f"{target} {len(jobs)} {kind} package(s)? [y/N] ").strip().lower() not in ("y", "yes", "o", "oui"):
             print("Aborted.")
             return 1
-    work_dir = (Path(cfg["import"]["work_dir"]).expanduser() if cfg["import"]["work_dir"]
-                else default_work_dir(wapt_python, Path(cfg["cache"]["directory"]).expanduser()))
+    work_dir = _work_dir(cfg, wapt_python)
     output_dir = Path(args.output_dir or work_dir / subdir).expanduser()
     conv = path_converter(wapt_python)
     by_source = {j.source: j for j in jobs}
@@ -576,6 +607,8 @@ def publish_management(cfg: dict, args: argparse.Namespace, idx: Indexes, server
             continue
         try:
             upload_package(server, path, endpoint=endpoint)
+            if not cfg["import"]["keep_files"]:
+                _purge(path)
             deps = len([d for d in (res.get("depends") or "").split(",") if d])
             print(f"  {job.label}: {kind} package v{res['version']} uploaded ({deps} dependencies)")
         except (ImportFailed, requests.RequestException) as e:
@@ -665,6 +698,60 @@ def cmd_cleanup(cfg: dict, args: argparse.Namespace) -> int:
     idx = load_indexes(cfg, _cache(cfg))
     return run_cleanup(cfg, idx, names=args.packages, apply=args.apply, yes=args.yes,
                        all_prefixes=args.all_prefixes)
+
+
+PURGED_DIRS = ("downloads", "signed", "hosts", "groups")
+
+
+def _tree_size(path: Path) -> int:
+    if path.is_file():
+        return path.stat().st_size
+    return sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
+
+
+def cmd_purge(cfg: dict, args: argparse.Namespace) -> int:
+    """Delete the package files left in the work directory (failed uploads, --no-upload, --keep-files)."""
+    try:
+        wapt_python = find_wapt_python(cfg["signing"]["wapt_python"])
+    except ImportFailed:
+        wapt_python = ""  # no agent: nothing was signed through Windows, the work directory is in the cache
+    work_dir = _work_dir(cfg, wapt_python)
+    items: list[Path] = []
+    total = 0
+    for name in PURGED_DIRS:
+        directory = work_dir / name
+        if not directory.is_dir():
+            continue
+        entries = sorted(directory.iterdir())
+        size = sum(_tree_size(e) for e in entries)
+        if entries:
+            print(f"  {directory}: {len(entries)} item(s), {_human_size(size)}")
+        items += entries
+        total += size
+    if not items:
+        print(f"Nothing to purge in {work_dir}.")
+        return 0
+    print(f"Space freed: {_human_size(total)}")
+    if not args.apply:
+        print("Dry run: nothing deleted. Add --apply to delete these files.")
+        return 0
+    if not args.yes and sys.stdin.isatty():
+        answer = input(f"Delete {len(items)} item(s) from {work_dir}? [y/N] ").strip().lower()
+        if answer not in ("y", "yes", "o", "oui"):
+            print("Aborted.")
+            return 1
+    failed = 0
+    for path in items:
+        try:
+            if path.is_dir() and not path.is_symlink():
+                shutil.rmtree(path)
+            else:
+                path.unlink(missing_ok=True)
+        except OSError as e:
+            log.error("Cannot delete %s: %s", path, e)
+            failed += 1
+    print(f"{len(items) - failed} item(s) deleted, {failed} failed.")
+    return 1 if failed else 0
 
 
 STAGES = {"verify": "vérification de la signature d'origine…", "sign": "signature…"}
@@ -763,8 +850,7 @@ def cmd_import(cfg: dict, args: argparse.Namespace) -> int:
     log.info("Using %s", wapt_python)
 
     # Trust is checked before asking anything: no point unlocking the key for an unverifiable source
-    work_dir = (Path(cfg["import"]["work_dir"]).expanduser() if cfg["import"]["work_dir"]
-                else default_work_dir(wapt_python, Path(cfg["cache"]["directory"]).expanduser()))
+    work_dir = _work_dir(cfg, wapt_python)
     log.info("Work directory: %s", work_dir)
     trusted: list[Path] = []
     if cfg["import"]["verify"] == "none":
@@ -851,6 +937,8 @@ def _run_import(cfg: dict, args: argparse.Namespace, idx: Indexes, todo: list, s
                 try:
                     upload_package(server, path, on_progress=lambda n: progress.advance(task, n))
                     item.result["uploaded"] = True
+                    if not cfg["import"]["keep_files"]:
+                        _purge(path, item.download_path)
                 except (ImportFailed, requests.RequestException) as e:
                     item.result.update(ok=False, error=str(e))
                     log.error("%s: %s", path.name, e)
@@ -866,8 +954,9 @@ def _run_import(cfg: dict, args: argparse.Namespace, idx: Indexes, todo: list, s
                                        yes=args.yes, server=server)
 
     failed = [i for i in todo if not i.result.get("ok")]
+    kept = args.no_upload or cfg["import"]["keep_files"]
     print(f"\n{len(todo) - len(failed)} imported" + (" (signed only)" if args.no_upload else "")
-          + f", {len(failed)} failed. Signed packages: {output_dir}")
+          + f", {len(failed)} failed." + (f" Signed packages: {output_dir}" if kept else ""))
     for item in failed:
         print(f"  FAILED {item.entry.package}: {item.result.get('error', 'not processed')}")
     return 1 if failed or cleanup_code else 0
@@ -895,6 +984,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_hosts(cfg, args)
         if args.command == "groups":
             return cmd_groups(cfg, args)
+        if args.command == "purge":
+            return cmd_purge(cfg, args)
     except (WaptServerError, ImportFailed, NotifyError, RuntimeError, OSError, ValueError) as e:
         log.error("%s", e)
         return 1

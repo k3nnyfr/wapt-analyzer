@@ -2,7 +2,7 @@
 
 <img src="docs/images/wapt-analyzer-logo-128.png" alt="wapt-analyzer logo" width="128">
 
-![release](https://img.shields.io/badge/release-v0.9.1-blue.svg)
+![release](https://img.shields.io/badge/release-v0.10.0-blue.svg)
 
 Outil en ligne de commande pour entretenir le dépôt de paquets d'un serveur [WAPT](https://www.wapt.fr). Il compare ce dépôt, le store public Tranquil IT et l'inventaire des postes, puis aide à combler les écarts.
 
@@ -17,6 +17,7 @@ Outil en ligne de commande pour entretenir le dépôt de paquets d'un serveur [W
 | [`report`](docs/report.md) | Analyse le parc et produit un rapport HTML : paquets manquants, logiciels installés hors WAPT, mises à jour disponibles, paquets groupe et machine à reconstruire | Non |
 | [`import`](docs/import.md) | Importe des paquets du store (signature d'origine vérifiée, renommés à votre préfixe, signés avec **votre** clé) ou met à jour ceux du dépôt (`--update`) | Avec `--apply` |
 | [`cleanup`](docs/cleanup.md) | Supprime les anciennes versions qu'aucun poste ne peut plus installer | Avec `--apply` |
+| [`purge`](docs/cleanup.md#purger-les-fichiers-locaux) | Vide le dossier de travail local des paquets téléchargés et signés qui y restent | Non |
 | [`groups`](docs/groups.md) | Recrée les paquets groupe déployés mais disparus du dépôt, suggère un groupe « socle commun » par OS | Avec `--apply` |
 | [`hosts`](docs/hosts.md) | Recrée et complète le paquet machine de chaque poste (groupes, paquets installés), reprend en gestion les logiciels installés hors WAPT (`--adopt`) | Avec `--apply` |
 | [`report --notify`](docs/scheduling.md) | Envoie le résumé du rapport par mail ou webhook, depuis cron ou un timer systemd | Non |

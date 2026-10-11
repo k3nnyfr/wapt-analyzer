@@ -77,6 +77,7 @@ exclude = ["waptupgrade", "waptsetup", "waptagent", "waptserver"]
 # Packages (name without prefix) never replaced by `import --update`, e.g. your own builds
 # update_exclude = ["vcredist"]
 # work_dir = "~/.cache/wapt-analyzer/import"
+# keep_files = false                        # keep downloaded and signed packages once uploaded
 
 [hosts]
 # exclude = ["waptupgrade"]                 # packages (name without prefix) never added to host packages

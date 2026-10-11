@@ -35,4 +35,5 @@ exclude = ["waptupgrade"]     # paquets (sans préfixe) jamais ajoutés aux paqu
 | `-i`, `--interactive` | Choisit les ajouts dans une liste à cocher |
 | `--apply`, `-y` | Signe et envoie les paquets machine ; `-y` saute la confirmation |
 | `--no-upload`, `--output-dir` | Signe sans envoyer, pour vérifier les paquets ; dossier des paquets signés |
+| `--keep-files` | Garde les paquets signés après l'upload (défaut : supprimés une fois envoyés ; `[import] keep_files`) |
 | `--certificate`, `--private-key`, `--key-password-file` | Clé de signature, comme pour `import` |

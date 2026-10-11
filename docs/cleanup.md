@@ -42,3 +42,17 @@ exclude = ["waptupgrade"]     # nom sans préfixe
 | `--apply`, `-y` | Supprime réellement ; `-y` saute la confirmation |
 | `--keep N` | Conserve en plus les N versions précédentes |
 | `--all-prefixes` | Traite aussi les paquets qui ne sont pas à votre préfixe |
+
+## Purger les fichiers locaux
+
+Les paquets téléchargés et signés sont supprimés du dossier de travail dès qu'ils sont envoyés. Restent ceux d'un upload en échec, de `--no-upload` ou de `--keep-files`. `purge` vide les sous-dossiers `downloads/`, `signed/`, `hosts/` et `groups/` du dossier de travail (`[import] work_dir`, voir [Importer et mettre à jour](import.md#signature)). Les certificats de confiance (`trusted/`) sont conservés :
+
+```bash
+uv run wapt-analyzer purge              # simulation : contenu de chaque dossier et espace libéré
+uv run wapt-analyzer purge --apply -y   # supprime sans confirmation
+```
+
+| Option | Rôle |
+|---|---|
+| `--apply`, `-y` | Supprime réellement ; `-y` saute la confirmation |
+| `--cache-dir`, `--wapt-python` | Pour retrouver le dossier de travail par défaut, s'ils diffèrent de la configuration |

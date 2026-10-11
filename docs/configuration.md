@@ -54,7 +54,7 @@ key_password_file = "~/.config/wapt-analyzer/key-password"
 | `[matching]` | Rapprochement logiciel ↔ paquet | `threshold`, `exclude`, `exclude_keys`, `exclude_publishers`, `fold_profiles`, `fold_publishers` |
 | `[mappings]` | Corrections manuelles du rapprochement | `"regex" = "paquet"` |
 | `[signing]` | Signature des paquets importés | `certificate`, `private_key`, `key_password_file`, `wapt_python` |
-| `[import]` | Comportement de `import` | `verify`, `dependencies`, `maturity`, `exclude`, `update_exclude`, `work_dir` |
+| `[import]` | Comportement de `import` | `verify`, `dependencies`, `maturity`, `exclude`, `update_exclude`, `work_dir`, `keep_files` |
 | `[hosts]` | Comportement de `hosts` | `exclude` |
 | `[groups]` | Comportement de `groups` et `hosts --groups` | `keep_missing`, `suggest_share`, `suggest_min_hosts`, `suggest_name`, `assign_share` |
 | `[cleanup]` | Comportement de `cleanup` | `keep`, `exclude` |
@@ -89,7 +89,7 @@ Les secrets suivent leur propre ordre de recherche, décrit ci-dessous.
 | Emplacement | Contenu | Remarque |
 |---|---|---|
 | `~/.cache/wapt-analyzer/` (`[cache] directory`, `--cache-dir`) | Index des dépôts, inventaire des postes, état du dernier envoi de `--notify` | Inventaire et état en `600` ; réutilisés par `report --offline` |
-| `<cache>/import/` (`[import] work_dir`) | Paquets téléchargés et signés | Sous WSL avec l'agent Windows : `%LOCALAPPDATA%\wapt-analyzer\import` |
+| `<cache>/import/` (`[import] work_dir`) | Paquets téléchargés et signés | Supprimés une fois envoyés (sauf `keep_files`) ; sous WSL avec l'agent Windows : `%LOCALAPPDATA%\wapt-analyzer\import` |
 | `wapt-report.html` (`[report] output`, `-o`) | Rapport HTML | Dans le dossier courant par défaut |
 
 L'inventaire en cache décrit vos postes et leurs logiciels : traitez-le comme une donnée interne. On peut supprimer le dossier de cache à tout moment, il est reconstruit au passage suivant.

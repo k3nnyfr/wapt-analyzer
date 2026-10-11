@@ -61,5 +61,9 @@
 - [x] Recréer les paquets groupe déployés mais disparus du dépôt
 - [x] Suggérer des groupes « socle commun » et les affecter aux postes (`hosts --groups`)
 
+## v0.10.0 — Espace disque
+- [x] Purge des paquets téléchargés et signés une fois envoyés au serveur (`--keep-files` pour les garder)
+- [x] Commande `purge` pour vider le dossier de travail à la demande
+
 ## Plus tard
 - [ ] Publication sur PyPI (`uvx wapt-analyzer`)

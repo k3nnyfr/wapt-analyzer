@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0] - 2026-10-11
+
+### Added
+- **Purge automatique après l'upload** : chaque paquet envoyé avec succès est supprimé du dossier de travail (téléchargement et paquet signé pour `import`, paquet signé pour `hosts` et `groups`), pour ne pas remplir le disque. Les paquets en échec et ceux de `--no-upload` restent en place.
+- **`--keep-files`** (`import`, `hosts`, `groups`) et `[import] keep_files` pour conserver les paquets après l'upload.
+- **Commande `purge`** : vide les sous-dossiers `downloads/`, `signed/`, `hosts/` et `groups/` du dossier de travail, en gardant les certificats de confiance. Simulation par défaut (contenu et espace libéré), `--apply` pour supprimer.
+
 ## [0.9.1] - 2026-10-10
 
 ### Added

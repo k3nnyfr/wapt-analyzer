@@ -111,6 +111,7 @@ DEFAULTS: dict = {
         # Packages (name without prefix) never replaced by `import --update`, e.g. your own builds
         "update_exclude": [],
         "work_dir": "",               # default: <cache>/import
+        "keep_files": False,          # keep downloaded and signed packages after the upload
     },
     "hosts": {
         "exclude": [],                # packages (name without prefix) never added to host packages

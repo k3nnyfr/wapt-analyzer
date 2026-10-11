@@ -52,4 +52,5 @@ Comme pour les paquets machine, le paquet groupe est construit à partir de son 
 | `-i`, `--interactive` | Choisit les groupes dans une liste à cocher |
 | `--apply`, `-y` | Signe et envoie les groupes ; `-y` saute la confirmation |
 | `--no-upload`, `--output-dir` | Signe sans envoyer ; dossier des paquets signés |
+| `--keep-files` | Garde les paquets signés après l'upload (défaut : supprimés une fois envoyés ; `[import] keep_files`) |
 | `--certificate`, `--private-key`, `--key-password-file` | Clé de signature, comme pour `import` |

@@ -50,6 +50,7 @@ Options principales de `wapt-analyzer import` :
 | `--cleanup` | Après l'upload, supprime les versions remplacées par celles importées (voir [Nettoyer le dépôt](cleanup.md)) |
 | `--no-deps`, `--force` | Ignore les dépendances ; importe même si le dépôt a déjà la version |
 | `--no-upload`, `--output-dir` | Signe sans envoyer ; dossier des paquets signés |
+| `--keep-files` | Garde les paquets téléchargés et signés après l'upload (défaut : supprimés une fois envoyés ; `[import] keep_files`) |
 | `--certificate`, `--private-key`, `--key-password-file` | Clé de signature (voir plus bas) |
 | `--set-maturity` | Maturité des paquets importés (défaut : celle du store) |
 | `--verify`, `--trusted-cert`, `--trusted-fingerprint` | Vérification de la source (voir [Source et confiance](#source-et-confiance)) |
@@ -110,6 +111,8 @@ La signature s'appuie sur l'implémentation de référence de WAPT (`waptpackage
 Le chemin est détecté automatiquement, ou fixé avec `--wapt-python`.
 
 **Sous WSL avec l'agent Windows**, les téléchargements et les paquets signés sont placés sur le disque Windows (`%LOCALAPPDATA%\wapt-analyzer\import`). Les grosses écritures d'un programme Windows vers le partage `\\wsl.localhost\…` peuvent en effet se bloquer indéfiniment. Ce dossier peut être changé avec `[import] work_dir`, à condition de rester sous `/mnt/c/…`.
+
+Chaque paquet envoyé avec succès est ensuite supprimé du dossier de travail, téléchargement et paquet signé, pour ne pas remplir le disque. Les paquets en échec restent en place (le téléchargement est réutilisé au passage suivant), comme tout le résultat de `--no-upload`. `--keep-files` ou `[import] keep_files = true` conserve tout. `purge` vide ce dossier à la demande (voir [Purger les fichiers locaux](cleanup.md#purger-les-fichiers-locaux)).
 
 ```toml
 [signing]
