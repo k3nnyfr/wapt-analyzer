@@ -65,5 +65,18 @@
 - [x] Purge des paquets téléchargés et signés une fois envoyés au serveur (`--keep-files` pour les garder)
 - [x] Commande `purge` pour vider le dossier de travail à la demande
 
+## v0.11.0 — Suivi des déploiements
+- [ ] Onglet « Déploiements » dans le rapport : paquets en erreur par poste, postes en retard d'une version, postes muets depuis N jours (`host_tasks_status`, état des paquets de l'inventaire)
+- [ ] Alerte `report --notify` sur les échecs de déploiement
+
+## v0.12.0 — Déclenchement des mises à jour
+- [ ] Demander aux postes un `update` / `upgrade` immédiat après un import (`import --update --apply --upgrade-hosts`, `trigger_host_action`)
+- [ ] Réveil des postes éteints (`trigger_wakeonlan`)
+- [ ] Vérifier au préalable que ces actions sont disponibles sur l'édition Discovery
+
+## v0.13.0 — Paquets inutilisés ou cassés
+- [ ] `cleanup --unused` : paquets du dépôt qu'aucun poste n'a installés ni ne réclame (`hosts_count_for_package`), simulation par défaut
+- [ ] Signaler les dépendances qui pointent vers un paquet absent du dépôt (`get_unavailable_packages`)
+
 ## Plus tard
 - [ ] Publication sur PyPI (`uvx wapt-analyzer`)
