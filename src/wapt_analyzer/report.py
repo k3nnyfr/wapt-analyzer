@@ -151,6 +151,14 @@ def write_csv(data: dict, directory: Path) -> list[Path]:
          [[o["os"], o["kind"], o["local"]["package"], o["local"]["version"],
            o["store"]["package"], o["store"]["version"]]
           for o in data["outdated"]])
+    if "deployments" in data:
+        dump("deployments.csv", ["os", "host", "last_seen_on", "kind", "package", "installed", "version", "status",
+                                 "date", "output"],
+             [[h["os"], h["host"], h["last_seen_on"], i["kind"], i["package"], i["installed"], i["version"],
+               i["status"], i["date"], i["output"]]
+              for h in data["deployments"]["hosts"] for i in h["errors"] + h["pending"]]
+             + [[h["os"], h["host"], h["last_seen_on"], "silent", "", "", "", "", "", ""]
+                for h in data["deployments"]["hosts"] if h["stale"]])
     return written
 
 

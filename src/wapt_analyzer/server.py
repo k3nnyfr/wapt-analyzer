@@ -1,4 +1,4 @@
-"""Minimal client for the WAPT server REST API (read-only calls)."""
+"""Minimal client for the WAPT server REST API."""
 
 from __future__ import annotations
 
@@ -166,6 +166,19 @@ class WaptServer:
 
     def host_data(self, uuid: str, field_name: str) -> list[dict]:
         return self._call("GET", "api/v3/host_data", params={"uuid": uuid, "field": field_name}) or []
+
+    def hosts_for_packages(self, packages: list[str]) -> set[str]:
+        """uuids of the hosts on which one of these packages is installed or pending."""
+        rows = self._call("POST", "api/v3/hosts_for_package",
+                          json={"package": packages, "columns": ["host"], "limit": 100000}) or []
+        return {r["host"] for r in rows if r.get("host")}
+
+    def trigger_host_action(self, actions: list[dict]) -> list:
+        """Relay signed actions to the connected agents (websocket); disconnected hosts are skipped."""
+        return self._call("POST", "api/v3/trigger_host_action", json=actions) or []
+
+    def wake_on_lan(self, uuids: list[str]) -> None:
+        self._call("POST", "api/v3/trigger_wakeonlan", json={"uuids": uuids})
 
     def collect_hosts(self, workers: int = 8) -> list[Host]:
         rows = self.hosts()

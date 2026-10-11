@@ -48,6 +48,7 @@ Options principales de `wapt-analyzer import` :
 | `--update` | Met à jour les paquets du dépôt en retard sur le store (voir ci-dessous) |
 | `--apply`, `-y` | Exécute réellement l'import ; `-y` saute la confirmation |
 | `--cleanup` | Après l'upload, supprime les versions remplacées par celles importées (voir [Nettoyer le dépôt](cleanup.md)) |
+| `--upgrade-hosts` | Après l'upload, demande aux postes connectés qui ont ces paquets de se mettre à jour (voir [Mettre à jour les postes](upgrade.md)) |
 | `--no-deps`, `--force` | Ignore les dépendances ; importe même si le dépôt a déjà la version |
 | `--no-upload`, `--output-dir` | Signe sans envoyer ; dossier des paquets signés |
 | `--keep-files` | Garde les paquets téléchargés et signés après l'upload (défaut : supprimés une fois envoyés ; `[import] keep_files`) |

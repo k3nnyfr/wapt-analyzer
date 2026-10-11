@@ -13,9 +13,12 @@ from pathlib import Path
 import requests
 
 from . import __version__
+from .actions import Target, build_actions, host_rows_to_targets, sign_actions, wake_and_wait
 from .analysis import AnalysisResult, analyze, find_updates
-from .cleanup import delete_packages, plan_cleanup
+from .cleanup import delete_packages, missing_dependencies, plan_cleanup, plan_unused
 from .config import load_config, resolve_client_key_password, resolve_key_password, resolve_password, resolve_totp
+from .deploy import add_to_report as add_deployments_to_report
+from .deploy import track_deployments
 from .fetch import USER_AGENT, Cache, fetch_cached
 from .grouppkg import GroupPlan, group_control, plan_missing_groups, suggest_groups
 from .grouppkg import add_to_report as add_groups_to_report
@@ -157,6 +160,8 @@ def build_parser() -> argparse.ArgumentParser:
     sig.add_argument("--set-maturity", help="Maturity of the imported packages (default: keep the store one)")
     act.add_argument("--cleanup", action="store_true",
                      help="After a successful upload, remove the versions superseded by the imported packages")
+    act.add_argument("--upgrade-hosts", action="store_true",
+                     help="After a successful upload, ask the connected hosts having these packages to upgrade now")
     trust = imp.add_argument_group("source verification")
     trust.add_argument("--verify", choices=["full", "control", "none"],
                        help="Source package verification: files + metadata (full, default), metadata only, or none")
@@ -214,8 +219,34 @@ def build_parser() -> argparse.ArgumentParser:
     cln.add_argument("--keep", type=int, help="Also keep this many previous versions (default: 0)")
     cln.add_argument("--all-prefixes", action="store_true",
                      help="Also clean packages that do not carry your prefix")
+    cln.add_argument("--unused", action="store_true",
+                     help="Remove instead the packages no host has installed, waits for or gets through a dependency, "
+                          "and list the dependencies missing from the repository")
+    cln.add_argument("--min-age", type=int, metavar="DAYS",
+                     help="With --unused: keep the packages signed less than DAYS ago (default: 30)")
     cln.add_argument("--apply", action="store_true", help="Really delete (default: dry run)")
     cln.add_argument("-y", "--yes", action="store_true", help="Do not ask for confirmation")
+
+    upg = sub.add_parser(
+        "upgrade", parents=[common],
+        help="Ask the agents to apply their pending upgrades now (dry run by default)",
+        description="Send a signed upgrade (update, download, upgrade) or update action to the connected agents, "
+                    "as the WAPT console does. Default targets: the hosts with pending installs or upgrades in the "
+                    "inventory. Disconnected hosts are skipped unless --wake wakes them up first.",
+    )
+    upg.add_argument("names", nargs="*", metavar="HOST", help="Restrict to these hosts (name, FQDN or uuid)")
+    tgt = upg.add_mutually_exclusive_group()
+    tgt.add_argument("--all", action="store_true", help="Target every host, not only those with pending installs")
+    tgt.add_argument("--packages", type=_csv_list,
+                     help="Target the hosts having these packages (tsi-firefox or firefox, comma separated)")
+    upg.add_argument("--update-only", action="store_true",
+                     help="Only refresh the package index of the agents (no install)")
+    upg.add_argument("--wake", action="store_true", help="Wake-on-LAN the disconnected targets, then wait for them")
+    upg.add_argument("--wait", type=int, default=180, metavar="SECONDS",
+                     help="With --wake: how long to wait for the hosts to connect (default: 180)")
+    upg.add_argument("--apply", action="store_true", help="Really send the actions (default: dry run)")
+    upg.add_argument("-y", "--yes", action="store_true", help="Do not ask for confirmation")
+    _signing_options(upg)
 
     prg = sub.add_parser(
         "purge",
@@ -245,7 +276,7 @@ def apply_args(cfg: dict, args: argparse.Namespace) -> dict:
         "certificate": ("signing", "certificate"), "private_key": ("signing", "private_key"),
         "key_password_file": ("signing", "key_password_file"), "wapt_python": ("signing", "wapt_python"),
         "set_maturity": ("import", "maturity"), "verify": ("import", "verify"), "keep": ("cleanup", "keep"),
-        "keep_files": ("import", "keep_files"),
+        "keep_files": ("import", "keep_files"), "min_age": ("cleanup", "unused_min_age"),
     }
     for attr, (section, key) in mapping.items():
         value = getattr(args, attr, None)
@@ -368,6 +399,8 @@ def cmd_report(cfg: dict, args: argparse.Namespace) -> int:
         "store_page_url": f"https://wapt.tranquil.it/store/{lang}" if "wapt.tranquil.it" in idx.store_url else "",
     }
     data = to_dict(result, context, lang, restricted_licences=cfg["store"]["restricted_licences"])
+    stale_days = int(cfg["deployments"]["stale_days"])
+    add_deployments_to_report(data, track_deployments(hosts, stale_days), stale_days)
     if prefix:
         add_to_report(data, plan_hosts(hosts, idx.repo_entries, prefix, unmanaged=result.software_unmanaged,
                                        exclude=cfg["hosts"]["exclude"], assign_groups=True,
@@ -391,6 +424,9 @@ def cmd_report(cfg: dict, args: argparse.Namespace) -> int:
     say(f"{sm['hosts']} hosts | {sm['missing_packages']} missing packages | "
         f"{sm['software_to_import']} software to import | {sm['software_unmanaged']} outside WAPT | "
         f"{sm['software_unmatched']} unmatched (+{sm['software_folded']} folded) | {sm['outdated']} outdated")
+    say(f"Deployments: {sm['deploy_error_hosts']} host(s) in error ({sm['deploy_errors']} package(s)) | "
+        f"{sm['deploy_pending_hosts']} with pending installs | {sm['stale_hosts']} silent for "
+        f"{stale_days}+ days")
     if args.notify and notify(cfg, data, cache, html):
         return 1
     return 0
@@ -468,6 +504,56 @@ def run_cleanup(cfg: dict, idx: Indexes, *, names: list[str], apply: bool, yes: 
     for err in errors:
         print(f"  ERROR {err}")
     return 1 if errors or len(deleted) < len(todo) else 0
+
+
+def run_unused(cfg: dict, args: argparse.Namespace, idx: Indexes, cache: Cache) -> int:
+    """Plan (and with --apply, perform) the removal of the packages no host uses."""
+    server = connect(cfg, idx)
+    server.login()
+    try:
+        hosts = load_inventory(server, cache, workers=int(cfg["server"]["workers"]), session=False)
+        c = cfg["cleanup"]
+        plan = plan_unused(idx.repo_entries, hosts, prefix="" if args.all_prefixes else cfg["repo"]["prefix"],
+                           names=args.packages, exclude=tuple(c["exclude"]) + tuple(cfg["import"]["exclude"]),
+                           min_age_days=int(c["unused_min_age"]))
+        missing = missing_dependencies(idx.repo_entries, hosts)
+        if missing:
+            print(f"Dependencies missing from the repository ({len(missing)}): hosts cannot install them")
+            for dep, users in missing.items():
+                print(f"  {dep}  <- {', '.join(users)}")
+            print()
+        todo = [i for i in plan if not i.skip]
+        if not plan:
+            print(f"No unused package: every package is installed on, or required by, one of the {len(hosts)} hosts.")
+            return 0
+        print(f"Unused packages ({len(todo)} to delete, {len(plan) - len(todo)} kept), on none of the "
+              f"{len(hosts)} hosts:")
+        for item in plan:
+            latest = item.versions[0]
+            status = f"KEEP ({item.skip})" if item.skip else "DELETE"
+            print(f"  {status:<8} {item.package} {latest.version}  {latest.target_os or 'all'}"
+                  f"{f'  (+{len(item.versions) - 1} older version(s))' if len(item.versions) > 1 else ''}")
+        print(f"Space freed: {_human_size(sum(i.size for i in todo))}")
+        if not todo:
+            return 0
+        if not args.apply:
+            print("Dry run: nothing deleted. Add --apply to delete.")
+            return 0
+        uuids = [e.get("package_uuid") for i in todo for e in i.versions]
+        if not args.yes and sys.stdin.isatty():
+            answer = input(f"Delete {len(todo)} package(s) ({len(uuids)} version(s)) from {idx.server_url}? "
+                           "This cannot be undone. [y/N] ").strip().lower()
+            if answer not in ("y", "yes", "o", "oui"):
+                print("Aborted.")
+                return 1
+        result = delete_packages(server, uuids)
+    finally:
+        server.logout()
+    deleted, errors = result.get("deleted") or [], result.get("errors") or []
+    print(f"{len(deleted)} version(s) deleted, {len(errors)} error(s).")
+    for err in errors:
+        print(f"  ERROR {err}")
+    return 1 if errors or len(deleted) < len(uuids) else 0
 
 
 def _host_matches(host, names: list[str]) -> bool:
@@ -695,9 +781,91 @@ def _run_groups(cfg: dict, args: argparse.Namespace, idx: Indexes, server: WaptS
 
 
 def cmd_cleanup(cfg: dict, args: argparse.Namespace) -> int:
-    idx = load_indexes(cfg, _cache(cfg))
+    cache = _cache(cfg)
+    idx = load_indexes(cfg, cache)
+    if args.unused:
+        return run_unused(cfg, args, idx, cache)
     return run_cleanup(cfg, idx, names=args.packages, apply=args.apply, yes=args.yes,
                        all_prefixes=args.all_prefixes)
+
+
+def _package_names(cfg: dict, names: list[str]) -> list[str]:
+    """Full package names: firefox -> tsi-firefox (names already carrying a prefix are kept)."""
+    prefix = cfg["repo"]["prefix"]
+    return [n if "-" in n and n.split("-", 1)[0] in (prefix, cfg["store"]["prefix"], "grp") or not prefix
+            else f"{prefix}-{n}" for n in names]
+
+
+def _pending_summary(packages: list[str], shown: int = 4) -> str:
+    more = f" +{len(packages) - shown}" if len(packages) > shown else ""
+    return f"{len(packages)} pending: {', '.join(packages[:shown])}{more}"
+
+
+def cmd_upgrade(cfg: dict, args: argparse.Namespace) -> int:
+    if args.wake and args.update_only:
+        log.info("--wake with --update-only: the hosts will only refresh their index")
+    cache = _cache(cfg)
+    idx = load_indexes(cfg, cache)
+    server = connect(cfg, idx)
+    server.login()
+    try:
+        rows = server.hosts()
+        if args.packages:
+            names = _package_names(cfg, args.packages)
+            reasons = dict.fromkeys(server.hosts_for_packages(names), ", ".join(names))
+        elif args.all or args.names:
+            reasons = {r["uuid"]: "" for r in rows}
+        else:
+            hosts = load_inventory(server, cache, workers=int(cfg["server"]["workers"]), session=False)
+            reasons = {s.uuid: _pending_summary(["host package" if i.package.lower() == s.uuid.lower() else i.package
+                                                 for i in s.pending])
+                       for s in track_deployments(hosts) if s.pending}
+        targets = [t for t in host_rows_to_targets(rows, reasons) if _host_matches(t, args.names)]
+        return run_host_actions(cfg, args, server, targets, "update" if args.update_only else "upgrade",
+                                wake=args.wake, wait=args.wait)
+    finally:
+        server.logout()
+
+
+def run_host_actions(cfg: dict, args: argparse.Namespace, server: WaptServer, targets: list[Target], action: str,
+                     *, wake: bool = False, wait: int = 0, key_password: str | None = None) -> int:
+    """Plan, then with --apply sign and send the action to the connected targets."""
+    if not targets:
+        print("No host to upgrade.")
+        return 0
+    asleep = [t for t in targets if not t.reachable]
+    print(f"Hosts to {action} ({len(targets) - len(asleep)} connected, {len(asleep)} disconnected):")
+    for t in targets:
+        state = "connected" if t.reachable else ("disconnected, to wake up" if wake else "disconnected, skipped")
+        print(f"  {t.name} ({state})" + (f": {t.reason}" if t.reason else ""))
+    if not args.apply:
+        print(f"Dry run: nothing sent. Add --apply to send the {action} action.")
+        return 0
+    if not args.yes and sys.stdin.isatty():
+        answer = input(f"Send the {action} action to {len(targets)} host(s)? [y/N] ").strip().lower()
+        if answer not in ("y", "yes", "o", "oui"):
+            print("Aborted.")
+            return 1
+    if wake and asleep:
+        print(f"Wake-on-LAN sent to {len(asleep)} host(s), waiting up to {wait} s for them to connect…")
+        wake_and_wait(server, targets, wait, on_wait=lambda n, total: log.info("%d/%d host(s) connected", n, total))
+    ready = [t for t in targets if t.reachable]
+    if not ready:
+        print("No connected host: nothing sent.")
+        return 1
+    signing = cfg["signing"]
+    if not signing["certificate"]:
+        log.error("No signer certificate: use --certificate or [signing] certificate")
+        return 2
+    signed = sign_actions(build_actions(ready, action), wapt_python=find_wapt_python(signing["wapt_python"]),
+                          certificate=signing["certificate"], private_key=signing["private_key"],
+                          password=key_password if key_password is not None else resolve_key_password(cfg))
+    server.trigger_host_action(signed)
+    skipped = [t for t in targets if not t.reachable]
+    print(f"{action.capitalize()} sent to {len(ready)} host(s)"
+          + (f", {len(skipped)} disconnected host(s) skipped: {', '.join(t.name for t in skipped)}" if skipped else "")
+          + ". Follow-up: the « Déploiements » tab of the next report.")
+    return 0
 
 
 PURGED_DIRS = ("downloads", "signed", "hosts", "groups")
@@ -792,8 +960,8 @@ def cmd_import(cfg: dict, args: argparse.Namespace) -> int:
     if args.update and args.from_report:
         log.error("--update and --from-report cannot be combined")
         return 2
-    if args.cleanup and args.no_upload:
-        log.error("--cleanup needs the upload: it cannot be combined with --no-upload")
+    if (args.cleanup or args.upgrade_hosts) and args.no_upload:
+        log.error("--cleanup and --upgrade-hosts need the upload: they cannot be combined with --no-upload")
         return 2
     cache = _cache(cfg)
     idx = load_indexes(cfg, cache)
@@ -887,7 +1055,7 @@ def _run_import(cfg: dict, args: argparse.Namespace, idx: Indexes, todo: list, s
                 key_password: str, wapt_python: str, work_dir: Path, trusted: list[Path]) -> int:
     """Download, sign, upload (and optionally clean) the planned packages."""
     signing, prefix = cfg["signing"], cfg["repo"]["prefix"]
-    cleanup_code = 0
+    cleanup_code = upgrade_code = 0
     output_dir = Path(args.output_dir or work_dir / "signed").expanduser()
 
     session = requests.Session()
@@ -952,6 +1120,16 @@ def _run_import(cfg: dict, args: argparse.Namespace, idx: Indexes, todo: list, s
                 f"{idx.repo_url}/Packages", _cache(cfg), session=server.session, verify=cfg["server"]["verify_ssl"]))
             cleanup_code = run_cleanup(cfg, idx, names=[i.result["package"] for i in uploaded], apply=True,
                                        yes=args.yes, server=server)
+        if args.upgrade_hosts and uploaded:
+            names = sorted({i.result["package"] for i in uploaded})
+            print("\nUpgrade of the hosts having the imported packages:")
+            reasons = dict.fromkeys(server.hosts_for_packages(names), "")
+            targets = host_rows_to_targets(server.hosts(), reasons)
+            try:
+                upgrade_code = run_host_actions(cfg, args, server, targets, "upgrade", key_password=key_password)
+            except (ImportFailed, WaptServerError) as e:
+                log.error("Host upgrade: %s", e)
+                upgrade_code = 1
 
     failed = [i for i in todo if not i.result.get("ok")]
     kept = args.no_upload or cfg["import"]["keep_files"]
@@ -959,7 +1137,7 @@ def _run_import(cfg: dict, args: argparse.Namespace, idx: Indexes, todo: list, s
           + f", {len(failed)} failed." + (f" Signed packages: {output_dir}" if kept else ""))
     for item in failed:
         print(f"  FAILED {item.entry.package}: {item.result.get('error', 'not processed')}")
-    return 1 if failed or cleanup_code else 0
+    return 1 if failed or cleanup_code or upgrade_code else 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -984,6 +1162,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_hosts(cfg, args)
         if args.command == "groups":
             return cmd_groups(cfg, args)
+        if args.command == "upgrade":
+            return cmd_upgrade(cfg, args)
         if args.command == "purge":
             return cmd_purge(cfg, args)
     except (WaptServerError, ImportFailed, NotifyError, RuntimeError, OSError, ValueError) as e:

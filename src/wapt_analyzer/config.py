@@ -126,6 +126,10 @@ DEFAULTS: dict = {
     "cleanup": {
         "keep": 0,                    # previous versions kept in addition to the latest
         "exclude": [],                # packages (name without prefix) never cleaned
+        "unused_min_age": 30,         # --unused: packages signed less than this many days ago are kept
+    },
+    "deployments": {
+        "stale_days": 7,              # a host silent for this many days is reported (its state is stale)
     },
     "report": {
         "output": "wapt-report.html",

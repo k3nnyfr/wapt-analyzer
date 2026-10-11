@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.11.0] - 2026-10-11
+
+### Added
+- **Onglet « Déploiements »** du rapport, tiré de l'état remonté par les agents (sans requête supplémentaire) : paquets dont l'installation ou l'audit a échoué, avec la fin de leur sortie ; installations, mises à jour (`26.3 → 26.4`) et désinstallations en attente ; postes muets depuis `[deployments] stale_days` jours (7 par défaut). Vue par poste et par paquet, export `deployments.csv`.
+- **Notifications** : compteurs de déploiement dans le résumé de `report --notify`, et nouvelles erreurs de déploiement dans les nouveautés (déclenchent l'envoi avec `when = "changes"`).
+- **Commande `upgrade`** : demande aux agents connectés d'installer tout de suite leurs mises à jour (update, téléchargement, upgrade), comme la console WAPT. Les actions sont signées avec la clé des paquets par le `waptpython` de l'agent. Cibles : postes ayant des installations en attente (défaut), `--packages`, `--all` ou noms de postes ; `--update-only` pour rafraîchir seulement l'index. Simulation par défaut.
+- **Wake-on-LAN** : `upgrade --wake` réveille les postes déconnectés depuis le serveur et les attend (`--wait`, 180 s) avant d'envoyer l'action.
+- **`import --upgrade-hosts`** : après l'upload, les postes connectés ayant les paquets importés se mettent à jour.
+- **`cleanup --unused`** : supprime les paquets (toutes versions) qu'aucun poste n'a installés, n'attend ni ne reçoit par une dépendance, même indirecte. Les paquets signés depuis moins de 30 jours sont gardés (`--min-age`, `[cleanup] unused_min_age`).
+- **Dépendances absentes du dépôt** listées par `cleanup --unused` : paquets réclamés par un paquet du dépôt ou par un paquet machine, qu'aucun poste ne peut installer.
+- Page `docs/upgrade.md`, capture d'écran de l'onglet « Déploiements ».
+
 ## [0.10.0] - 2026-10-11
 
 ### Added

@@ -1,5 +1,8 @@
-from wapt_analyzer.cleanup import covers, pinned_by, plan_cleanup
+from datetime import datetime
+
+from wapt_analyzer.cleanup import covers, missing_dependencies, pinned_by, plan_cleanup, plan_unused
 from wapt_analyzer.packages import PackageEntry, Version
+from wapt_analyzer.server import Host
 
 
 def pkg(package, version, target_os="windows", architecture="x64", maturity="PROD", **fields):
@@ -57,3 +60,29 @@ def test_plan_cleanup_safety_skips():
     assert pinned_by(entries[1], entries[0], entries) == ["tsi-app(=8.1-1)"]
     loose = [pkg("tsi-java", "8.2-1"), pkg("tsi-java", "8.1-1"), pkg("tsi-app", "2.0-1", depends="tsi-java(>=8.0)")]
     assert plan_cleanup(loose)[0].skip == ""                         # latest also satisfies >=8.0
+
+
+def test_plan_unused_follows_dependencies_and_keeps_recent_packages():
+    old = {"signature_date": "2026-01-01T10:00:00.000000"}
+    entries = [pkg("tsi-firefox", "157-1", **old), pkg("tsi-vcredist", "14-1", **old),
+               pkg("tsi-app", "2-1", depends="tsi-vcredist(>=14)", **old),        # used through grp-base
+               pkg("tsi-old", "1-1", **old), pkg("tsi-old", "0.9-1", **old),     # unused, two versions
+               pkg("tsi-new", "1-1", signature_date="2026-10-01T10:00:00.000000"),  # imported 10 days ago
+               pkg("tis-foreign", "1-1", **old),
+               pkg("grp-base", "3", section="group", depends="tsi-app", **old),
+               pkg("grp-gone", "1", section="group", **old)]
+    hosts = [Host("u1", "pc1", installed_packages=[{"package": "tsi-firefox"}, {"package": "u1", "section": "host",
+                                                                                 "depends": ["grp-base"]}])]
+    plan = {i.package: i for i in plan_unused(entries, hosts, prefix="tsi", now=datetime(2026, 10, 11, 12))}
+    assert sorted(plan) == ["grp-gone", "tis-foreign", "tsi-new", "tsi-old"]
+    assert plan["grp-gone"].skip == "" and plan["tsi-old"].skip == ""
+    assert [str(e.version) for e in plan["tsi-old"].versions] == ["1-1", "0.9-1"]
+    assert plan["tsi-new"].skip.startswith("signed 10 day(s) ago")
+    assert plan["tis-foreign"].skip.startswith("prefix")
+
+
+def test_missing_dependencies():
+    entries = [pkg("tsi-app", "2-1", depends="tsi-lib(>=1),tsi-vcredist"), pkg("tsi-app", "1-1", depends="tsi-gone"),
+               pkg("tsi-vcredist", "14-1")]
+    hosts = [Host("u1", "pc1", depends=["tsi-app", "tsi-meshagent"])]
+    assert missing_dependencies(entries, hosts) == {"tsi-lib": ["tsi-app"], "tsi-meshagent": ["pc1 (host package)"]}

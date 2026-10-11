@@ -29,6 +29,7 @@ SHOTS = {
                                     " c.dispatchEvent(new Event('change')); } });"),
     "report-hosts.png": ("hostpkgs", ""),
     "report-groups.png": ("groups", ""),
+    "report-deploy.png": ("deploy", "document.querySelector('#t-deploy details')?.setAttribute('open', '');"),
 }
 
 

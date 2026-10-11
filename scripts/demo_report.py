@@ -9,10 +9,13 @@ from __future__ import annotations
 
 import argparse
 import random
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from wapt_analyzer.analysis import analyze, find_updates
 from wapt_analyzer.config import DEFAULTS
+from wapt_analyzer.deploy import add_to_report as add_deployments_to_report
+from wapt_analyzer.deploy import track_deployments
 from wapt_analyzer.fetch import Cache, fetch_cached
 from wapt_analyzer.grouppkg import add_to_report as add_groups_to_report
 from wapt_analyzer.grouppkg import plan_missing_groups, suggest_groups
@@ -146,6 +149,32 @@ def build_hosts(rng: random.Random) -> list[Host]:
     return hosts
 
 
+def add_deploy_states(hosts: list[Host], rng: random.Random) -> None:
+    """Agent statuses for the « Déploiements » tab: a few failed installs and audits, pending upgrades, silent
+    hosts. A separate random generator keeps the other tabs identical."""
+    now = datetime.now(timezone.utc)
+    for host in hosts:
+        days = 12 if rng.random() < 0.1 else rng.choice([0, 0, 0, 1, 2])
+        host.last_seen_on = (now - timedelta(days=days, hours=rng.randint(0, 20))).isoformat()
+        for p in host.installed_packages:
+            if p.get("section") != "base" or not p["package"].startswith(f"{PREFIX}-"):
+                continue
+            draw = rng.random()
+            if p["package"] == f"{PREFIX}-firefox" and draw < 0.5:   # new version not applied yet
+                p.update(version="156.0.1-110", install_status="NEED-UPGRADE")
+                host.installed_packages.append({"package": p["package"], "version": "157.0.1-110", "section": "base",
+                                                "install_status": "NEED-INSTALL"})
+            elif p["package"] == f"{PREFIX}-libreoffice-fresh" and draw < 0.2:
+                p.update(version="26.8.0.2-21", install_status="ERROR", install_date=now.isoformat(),
+                         install_output="Installing: LibreOffice_26.8.0.2_Win_x86-64.msi\n"
+                                        "EWaptSetupException: Fatal error: installer returned 1603")
+            elif draw < 0.03:
+                p.update(version="1.0-1", last_audit_status="ERROR", last_audit_on=now.isoformat(),
+                         last_audit_output="Audit: uninstall key not found in the registry")
+    hosts[0].installed_packages.append({"package": f"{PREFIX}-teams", "version": "25.1-4", "section": "base",
+                                         "install_status": "NEED-INSTALL"})
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("-o", "--output", default="demo-report.html")
@@ -174,6 +203,8 @@ def main() -> None:
                                    assign_groups=True))
     recreate = plan_missing_groups(hosts, local_entries)
     add_groups_to_report(data, recreate, suggest_groups(hosts, local_entries, PREFIX, extra_groups=recreate))
+    add_deploy_states(hosts, random.Random(7))
+    add_deployments_to_report(data, track_deployments(hosts), 7)
     write_html(data, Path(args.output))
     print(f"Demo report: {args.output}")
 

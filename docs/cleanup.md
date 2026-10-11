@@ -42,6 +42,31 @@ exclude = ["waptupgrade"]     # nom sans préfixe
 | `--apply`, `-y` | Supprime réellement ; `-y` saute la confirmation |
 | `--keep N` | Conserve en plus les N versions précédentes |
 | `--all-prefixes` | Traite aussi les paquets qui ne sont pas à votre préfixe |
+| `--unused`, `--min-age N` | Supprime plutôt les paquets inutilisés (voir ci-dessous) |
+
+## Paquets inutilisés
+
+`cleanup --unused` vise les paquets entiers, toutes versions confondues, dont aucun poste n'a besoin :
+
+```bash
+uv run wapt-analyzer cleanup --unused           # simulation
+uv run wapt-analyzer cleanup --unused --apply
+```
+
+Un paquet (de base ou groupe) est **utilisé** s'il est installé ou en attente d'installation sur un poste, s'il figure dans un paquet machine, ou s'il est une dépendance, directe ou non, d'un paquet utilisé. Les autres sont proposés à la suppression, sauf :
+- ceux signés il y a moins de 30 jours (`--min-age`, `[cleanup] unused_min_age`) : un paquet tout juste importé n'est pas encore déployé ;
+- ceux exclus par `[cleanup] exclude` ou `[import] exclude` (`waptupgrade`, `waptagent`…) ;
+- ceux d'un autre préfixe, sauf avec `--all-prefixes`. Les groupes sont traités quel que soit leur préfixe.
+
+La même commande liste les **dépendances absentes du dépôt** : paquets réclamés par un paquet du dépôt ou par le paquet machine d'un poste, mais qu'aucun poste ne peut installer. Il faut alors les importer, ou les retirer des paquets qui en dépendent.
+
+```text
+Dependencies missing from the repository (2): hosts cannot install them
+  tsi-meshagent  <- pc-roblin.lan (host package), renatur-emoi (host package)
+  tsi-lib  <- tsi-app
+```
+
+L'inventaire est relevé au lancement : un poste qui n'a plus contacté le serveur depuis longtemps compte quand même avec ses paquets connus.
 
 ## Purger les fichiers locaux
 

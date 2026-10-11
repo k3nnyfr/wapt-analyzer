@@ -24,6 +24,12 @@ A job with ``control`` instead of a source file builds a host or group package f
 
     {"source": "<host uuid>", "section": "host", "inc": true,
      "control": {"package": "<uuid>", "version": "5", "depends": "..."}, "output_dir": "/path/out"}
+
+With ``actions`` instead of ``jobs``, the remote actions relayed by the server to the agents
+(``api/v3/trigger_host_action``) are signed, as the WAPT console does (``SSLPrivateKey.sign_claim``), and
+emitted as ``{"ok": true, "action": {...signed...}}``:
+
+    {"actions": [{"action": "trigger_host_upgrade", "uuid": "<host uuid>", "notify_server": true}]}
 """
 
 import json
@@ -147,7 +153,13 @@ def main():
     for path in spec.get("trusted_certs") or []:
         trusted.add_certificates_from_pem(pem_filename=path, trusted=True)
 
-    for job in spec["jobs"]:
+    for action in spec.get("actions") or []:
+        try:
+            emit({"ok": True, "action": key.sign_claim(action, signer_certificate_chain=signer_chain)})
+        except Exception as e:
+            emit({"ok": False, "uuid": action.get("uuid"), "error": f"{type(e).__name__}: {e}"})
+
+    for job in spec.get("jobs") or []:
         if job.get("control") is not None:
             process_host(job, key, signer_chain, signers)
         else:

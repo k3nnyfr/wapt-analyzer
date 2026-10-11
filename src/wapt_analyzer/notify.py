@@ -24,6 +24,9 @@ COUNTS = [  # summary key, label
     ("software_unmanaged", "logiciels installés hors WAPT alors qu'un paquet existe"),
     ("software_unmatched", "logiciels sans équivalent"),
     ("outdated", "mises à jour disponibles dans le store"),
+    ("deploy_error_hosts", "postes avec un paquet en erreur"),
+    ("deploy_pending_hosts", "postes avec des installations en attente"),
+    ("stale_hosts", "postes muets depuis plusieurs jours"),
 ]
 
 
@@ -45,10 +48,16 @@ def report_items(data: dict) -> dict[str, dict[str, str]]:
         "software_to_import": {f"{s['os']}|{s['key']}":
                                f"{s['names'][0]} → {s['match']['package']} ({os_(s)}, {s['host_count']} poste(s))"
                                for s in data["software_to_import"] if s.get("match")},
+        "deploy_errors": {f"{h['uuid']}|{i['kind']}|{i['package']}|{i['version']}":
+                          f"{h['host']} : {i['package']} {i['version']} ({ERROR_KINDS.get(i['kind'], i['kind'])})"
+                          for h in data.get("deployments", {}).get("hosts", []) for i in h["errors"]},
     }
 
 
+ERROR_KINDS = {"error": "installation en erreur", "audit": "audit en erreur"}
+
 CHANGE_LABELS = {
+    "deploy_errors": "Erreurs de déploiement",
     "outdated": "Mises à jour",
     "missing_packages": "Paquets manquants",
     "software_to_import": "Logiciels à importer",
@@ -78,7 +87,7 @@ def title(data: dict) -> str:
 def summary_text(data: dict, changes: dict[str, list[str]], report_url: str = "", first_run: bool = False) -> str:
     sm = data["summary"]
     lines = [title(data), ""]
-    lines += [f"• {sm[key]} {label}" for key, label in COUNTS]
+    lines += [f"• {sm[key]} {label}" for key, label in COUNTS if key in sm]
     if any(changes.values()) and not first_run:
         lines += ["", "Nouveautés depuis le dernier envoi :"]
         for section, items in changes.items():
@@ -134,7 +143,8 @@ def webhook_payload(fmt: str, data: dict, changes: dict[str, list[str]], text: s
         sm = data["summary"]
         body = [
             {"type": "TextBlock", "text": title(data), "weight": "Bolder", "size": "Medium", "wrap": True},
-            {"type": "FactSet", "facts": [{"title": str(sm[key]), "value": label} for key, label in COUNTS]},
+            {"type": "FactSet", "facts": [{"title": str(sm[key]), "value": label} for key, label in COUNTS
+                                              if key in sm]},
         ]
         for section, items in changes.items():
             if items:

@@ -126,6 +126,8 @@ h3 { font-size: 15px; margin: 20px 0 8px; }
 h3 .muted { font-size: 13px; font-weight: normal; }
 .tag.restricted { color: var(--warn); border-color: var(--warn); }
 .yes { color: var(--ok); } .no { color: var(--muted); }
+.bad { color: var(--warn); }
+pre.out { font-size: 11.5px; white-space: pre-wrap; max-width: 70ch; margin: 4px 0 0; color: var(--muted); }
 pre.cmd { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px; overflow-x: auto; white-space: pre-wrap; }
 .os { font-size: 12px; border-radius: 4px; padding: 1px 6px; background: var(--accent-soft); color: var(--accent); white-space: nowrap; }
 .os-macos { background: var(--mac-soft); color: var(--mac); }
@@ -180,6 +182,7 @@ footer { margin-top: 32px; color: var(--muted); font-size: 12px; }
   <button role="tab" data-tab="outdated">Mises à jour<span class="badge">{{ s.outdated }}</span></button>
   <button role="tab" data-tab="candidates">Liste d'import<span class="badge">{{ candidates | length }}</span></button>
   {% if data.groups is defined %}<button role="tab" data-tab="groups">Paquets groupe<span class="badge">{{ s.groups }}</span></button>{% endif %}
+  {% if data.deployments is defined %}<button role="tab" data-tab="deploy">Déploiements<span class="badge">{{ s.deploy_hosts }}</span></button>{% endif %}
   {% if data.host_packages is defined %}<button role="tab" data-tab="hostpkgs">Paquets machine<span class="badge">{{ s.host_packages }}</span></button>{% endif %}
 </nav>
 
@@ -268,6 +271,43 @@ footer { margin-top: 32px; color: var(--muted); font-size: 12px; }
   </table></div>
   {% else %}<p class="muted">Aucune suggestion : pas de paquet commun à la plupart des postes hors des groupes existants.</p>
   {% endfor %}
+</section>
+{% endif %}
+
+{% if data.deployments is defined %}
+{% set dep = data.deployments %}
+<section class="panel" id="deploy">
+  <h2>Postes à surveiller</h2>
+  <p class="intro">État remonté par les agents : paquets dont l'installation ou l'audit a échoué, installations et mises à jour en attente (l'agent les connaît mais ne les a pas encore appliquées), et postes qui n'ont pas contacté le serveur depuis {{ dep.stale_days }} jours ou plus (<code>[deployments] stale_days</code>) : leur état est ancien.</p>
+  {% if dep.hosts %}
+  <div class="toolbar"><input type="search" placeholder="Filtrer…" data-filter="t-deploy"> <span class="muted count" data-count="t-deploy"></span></div>
+  <div class="scroll"><table id="t-deploy" class="sortable">
+    <thead><tr><th>OS</th><th>Poste</th><th class="num">Vu il y a</th><th>En erreur</th><th>En attente</th></tr></thead>
+    <tbody>
+    {% for h in dep.hosts %}
+      <tr data-os="{{ h.os }}">{{ os_cell(h.os) }}
+        <td>{{ h.host }}</td>
+        <td class="num{% if h.stale %} bad{% endif %}" data-sort="{{ h.silent_days if h.silent_days is not none else 99999 }}" title="{{ h.last_seen_on }}">{% if h.silent_days is none %}jamais{% else %}{{ h.silent_days }} j{% endif %}</td>
+        <td class="small" data-sort="{{ h.errors | length }}">{% for i in h.errors %}<details><summary><code class="bad">{{ i.package }}</code> {{ i.version }} <span class="tag restricted">{{ 'audit' if i.kind == 'audit' else 'installation' }}{% if i.status == 'WARNING' %} (avertissement){% endif %}</span></summary>{% if i.date %}<div class="desc">{{ i.date }}</div>{% endif %}{% if i.output %}<pre class="out">{{ i.output }}</pre>{% endif %}</details>{% endfor %}</td>
+        <td class="small" data-sort="{{ h.pending | length }}">{% for i in h.pending %}<div><code>{{ i.package }}</code> {% if i.kind == 'upgrade' %}{{ i.installed }} → {{ i.version or '?' }}{% elif i.kind == 'remove' %}<span class="tag">à désinstaller</span>{% else %}{{ i.version }} <span class="tag">à installer</span>{% endif %}</div>{% endfor %}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}<p class="muted">Rien à signaler : tous les paquets sont installés et les postes ont contacté le serveur récemment.</p>{% endif %}
+
+  {% if dep.packages %}
+  <h2>Par paquet</h2>
+  <p class="intro">Les paquets en échec sur plusieurs postes pointent plutôt vers un problème du paquet que du poste. Les installations en attente se débloquent au prochain <code>wapt-get upgrade</code> des agents, ou tout de suite avec <code>uv run wapt-analyzer upgrade --apply</code>.</p>
+  <div class="scroll"><table id="t-deploy-pkg" class="sortable">
+    <thead><tr><th>Paquet</th><th>Version cible</th><th class="num">Postes en erreur</th><th class="num">Postes en attente</th></tr></thead>
+    <tbody>
+    {% for p in dep.packages %}
+      <tr><td><code>{{ p.package }}</code></td><td class="small">{{ p.versions | join(', ') }}</td>
+        {{ hosts_cell(p.errors | length, p.errors) }}{{ hosts_cell(p.pending | length, p.pending) }}</tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% endif %}
 </section>
 {% endif %}
 

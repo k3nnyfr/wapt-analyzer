@@ -13,6 +13,7 @@
 | **Mises à jour** | Paquets du dépôt dont la version amont est plus ancienne que celle du store |
 | **Liste d'import** | Liste consolidée des paquets du store à importer |
 | **Paquets groupe** | Groupes installés sur les postes mais absents du dépôt, groupes « socle commun » suggérés (voir [`groups`](groups.md)) |
+| **Déploiements** | Paquets en erreur (installation ou audit), installations et mises à jour en attente, postes muets depuis plusieurs jours (voir [Suivi des déploiements](#suivi-des-déploiements)) |
 | **Paquets machine** | Dépendances à ajouter au paquet machine de chaque poste (groupes, paquets installés, logiciels hors WAPT), paquets machine absents du serveur (voir [`hosts`](hosts.md)) |
 
 Le rapport fait le lien avec `import` : chaque paquet proposé (onglets paquets manquants, à importer, mises à jour, liste d'import) a une case à cocher, et une barre en bas de page affiche la commande `uv run wapt-analyzer import …` correspondant à la sélection, regroupée par OS, prête à copier (avec ou sans `--apply`). Les paquets réservés aux abonnés ne sont pas sélectionnables.
@@ -72,6 +73,25 @@ Les logiciels **sans équivalent** publiés par un constructeur (profil `oem` : 
 fold_profiles = []                       # défaut : ["oem"]
 fold_publishers = ["^Bayo$", "^ACME"]    # éditeurs supplémentaires à replier
 ```
+
+## Suivi des déploiements
+
+L'onglet **Déploiements** montre si les paquets envoyés au serveur arrivent bien sur les postes. Il s'appuie sur l'état que chaque agent remonte au serveur, déjà présent dans l'inventaire : aucune requête supplémentaire.
+
+| Colonne | Source |
+|---|---|
+| **En erreur** | Paquet dont l'installation a échoué (`install_status = ERROR`) ou dont l'audit signale une erreur ou un avertissement (`last_audit_status`). La fin de la sortie d'installation ou d'audit se déplie sous le paquet |
+| **En attente** | Paquet que l'agent sait devoir installer, mettre à jour (`7zip 26.3 → 26.4`) ou désinstaller, mais qu'il n'a pas encore appliqué |
+| **Vu il y a** | Jours écoulés depuis le dernier contact du poste ; au-delà de `[deployments] stale_days` (7 par défaut), son état est ancien et le poste est signalé |
+
+Un second tableau regroupe les mêmes informations par paquet : un paquet en échec sur plusieurs postes pointe plutôt vers un problème du paquet lui-même. L'export CSV ajoute `deployments.csv`, et [`report --notify`](scheduling.md) signale les nouvelles erreurs. [`upgrade`](upgrade.md) demande aux postes concernés d'appliquer tout de suite leurs installations en attente.
+
+```toml
+[deployments]
+stale_days = 14   # un poste muet depuis 14 jours est signalé
+```
+
+![Rapport de démonstration : onglet « Déploiements », paquets en erreur et mises à jour en attente par poste](images/report-deploy.png)
 
 ## Multi-OS (Windows, macOS, Linux)
 

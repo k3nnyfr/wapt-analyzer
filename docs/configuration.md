@@ -57,7 +57,8 @@ key_password_file = "~/.config/wapt-analyzer/key-password"
 | `[import]` | Comportement de `import` | `verify`, `dependencies`, `maturity`, `exclude`, `update_exclude`, `work_dir`, `keep_files` |
 | `[hosts]` | Comportement de `hosts` | `exclude` |
 | `[groups]` | Comportement de `groups` et `hosts --groups` | `keep_missing`, `suggest_share`, `suggest_min_hosts`, `suggest_name`, `assign_share` |
-| `[cleanup]` | Comportement de `cleanup` | `keep`, `exclude` |
+| `[cleanup]` | Comportement de `cleanup` | `keep`, `exclude`, `unused_min_age` |
+| `[deployments]` | Onglet « Déploiements » du rapport | `stale_days` |
 | `[report]` | Sorties du rapport | `output`, `json`, `csv_dir`, `language` |
 | `[cache]` | Cache local | `directory` |
 

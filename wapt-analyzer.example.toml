@@ -92,6 +92,10 @@ exclude = ["waptupgrade", "waptsetup", "waptagent", "waptserver"]
 [cleanup]
 keep = 0                                    # previous versions kept in addition to the latest
 # exclude = ["waptupgrade"]                 # packages (name without prefix) never cleaned
+# unused_min_age = 30                       # --unused: keep the packages signed less than 30 days ago
+
+[deployments]
+# stale_days = 7                            # hosts silent for this many days are reported in « Déploiements »
 
 [report]
 output = "wapt-report.html"
