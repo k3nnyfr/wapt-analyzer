@@ -101,3 +101,30 @@ def test_control_for():
     control = control_for(plan, {"package": "U1", "version": "9", "description": "Poste compta"})
     assert control["version"] == "9" and control["description"] == "Poste compta"
     assert next_version("7") == "8" and next_version("") == "0+1"
+
+
+def test_fix_missing_imports_from_store_or_removes():
+    store = {"tis-obs-studio": pkg("tis-obs-studio", "32.2-31"), "tis-teamviewer": pkg("tis-teamviewer", "15.8-26"),
+             "tis-acrobat": PackageEntry(package="tis-acrobat", version=Version("1-1"), fields={
+                 "package": "tis-acrobat", "licence": "Enterprise", "target_os": "windows"})}
+    current = ["tsi-firefox", "tsi-obs-studio(>=30)", "tis-teamviewer", "tsi-meshagent", "tsi-acrobat", "grp-gone"]
+    h = host(installed("tsi-firefox") + installed("grp-gone", section="group")
+             + installed("U1", section="host", depends=current), depends=current)
+    plan = plan_host(h, REPO, "tsi", store=store, restricted=("enterprise",))
+    assert [(f.package, f.action, f.store, f.target) for f in plan.fixes] == [
+        ("tsi-obs-studio", "import", "tis-obs-studio", "tsi-obs-studio"),
+        ("tis-teamviewer", "import", "tis-teamviewer", "tsi-teamviewer"),   # imported under your prefix
+        ("tsi-meshagent", "remove", "", ""),
+        ("tsi-acrobat", "remove", "", ""),                                  # subscribers only
+    ]                                                                       # missing group: groups command
+    assert plan.fixes[3].reason.startswith("absent du dépôt, réservé aux abonnés")
+    assert plan.depends == ["tsi-firefox", "tsi-obs-studio", "tsi-teamviewer", "grp-gone"]
+    assert plan.needs_upload
+
+
+def test_fix_missing_same_name_import_needs_no_upload():
+    current = ["tsi-firefox", "tsi-obs-studio"]
+    h = host(installed("tsi-firefox") + installed("U1", section="host", depends=current), depends=current)
+    plan = plan_host(h, REPO, "tsi", store={"tis-obs-studio": pkg("tis-obs-studio")})
+    assert [f.action for f in plan.fixes] == ["import"] and not plan.needs_upload
+    assert plan_host(h, REPO, "tsi").fixes == []                            # without --fix-missing

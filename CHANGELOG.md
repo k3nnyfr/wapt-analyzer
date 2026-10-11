@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.12.0] - 2026-10-11
+
+### Added
+- **`hosts --fix-missing`** : corrige les dépendances des paquets machine absentes du dépôt. Celles que le store propose sont importées (vérifiées, signées avec votre clé) avant l'envoi des paquets machine, en passant au préfixe de votre dépôt ; les autres, ou celles réservées aux abonnés, sont retirées. Les groupes absents restent à la commande `groups`. Avec `-i`, chaque correction se coche ; si l'import échoue, les paquets machine ne sont pas modifiés.
+- **Historique des déploiements** dans `history.sqlite` (dossier de cache) : chaque `report` en ligne enregistre les problèmes observés (poste, paquet, type), ouverts tant qu'ils sont vus, résolus quand ils disparaissent d'un poste encore inventorié. `report --offline` le lit sans l'enrichir ; `[deployments] history = false` le désactive.
+- **Ancienneté dans l'onglet « Déploiements »** : badge « depuis N j » (mis en évidence au-delà de `[deployments] alert_days`, 7 par défaut), badge « nouveau », problèmes résolus depuis le rapport précédent. Une installation en erreur prend la date d'échec remontée par l'agent si elle est plus ancienne. Colonnes `since` et `days` dans `deployments.csv`.
+- **Notifications** : rubrique « Problèmes de déploiement qui durent », signalés une fois quand ils atteignent `alert_days`, et compteur correspondant.
+
 ## [0.11.0] - 2026-10-11
 
 ### Added

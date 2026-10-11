@@ -96,6 +96,8 @@ keep = 0                                    # previous versions kept in addition
 
 [deployments]
 # stale_days = 7                            # hosts silent for this many days are reported in « Déploiements »
+# history = true                            # keep the deployment history in <cache>/history.sqlite
+# alert_days = 7                            # report --notify: issues lasting 7 days or more (0: never)
 
 [report]
 output = "wapt-report.html"

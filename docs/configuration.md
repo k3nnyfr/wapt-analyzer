@@ -58,7 +58,7 @@ key_password_file = "~/.config/wapt-analyzer/key-password"
 | `[hosts]` | Comportement de `hosts` | `exclude` |
 | `[groups]` | Comportement de `groups` et `hosts --groups` | `keep_missing`, `suggest_share`, `suggest_min_hosts`, `suggest_name`, `assign_share` |
 | `[cleanup]` | Comportement de `cleanup` | `keep`, `exclude`, `unused_min_age` |
-| `[deployments]` | Onglet « Déploiements » du rapport | `stale_days` |
+| `[deployments]` | Onglet « Déploiements » du rapport et son historique | `stale_days`, `history`, `alert_days` |
 | `[report]` | Sorties du rapport | `output`, `json`, `csv_dir`, `language` |
 | `[cache]` | Cache local | `directory` |
 
@@ -89,7 +89,7 @@ Les secrets suivent leur propre ordre de recherche, décrit ci-dessous.
 
 | Emplacement | Contenu | Remarque |
 |---|---|---|
-| `~/.cache/wapt-analyzer/` (`[cache] directory`, `--cache-dir`) | Index des dépôts, inventaire des postes, état du dernier envoi de `--notify` | Inventaire et état en `600` ; réutilisés par `report --offline` |
+| `~/.cache/wapt-analyzer/` (`[cache] directory`, `--cache-dir`) | Index des dépôts, inventaire des postes, état du dernier envoi de `--notify`, historique des déploiements (`history.sqlite`) | Inventaire et état en `600` ; réutilisés par `report --offline` |
 | `<cache>/import/` (`[import] work_dir`) | Paquets téléchargés et signés | Supprimés une fois envoyés (sauf `keep_files`) ; sous WSL avec l'agent Windows : `%LOCALAPPDATA%\wapt-analyzer\import` |
 | `wapt-report.html` (`[report] output`, `-o`) | Rapport HTML | Dans le dossier courant par défaut |
 

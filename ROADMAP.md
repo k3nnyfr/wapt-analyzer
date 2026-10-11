@@ -73,5 +73,11 @@
 - [x] `cleanup --unused` : paquets dont aucun poste n'a besoin, avec un délai de grâce après l'import
 - [x] Dépendances absentes du dépôt signalées (paquets du dépôt et paquets machine)
 
+## v0.12.0 — Réparer et suivre dans le temps
+- [x] `hosts --fix-missing` : dépendances des paquets machine absentes du dépôt, importées depuis le store quand il les propose, retirées sinon
+- [x] Historique des déploiements dans une base SQLite locale (problèmes ouverts et résolus par poste et par paquet, première et dernière observation)
+- [x] Onglet « Déploiements » : depuis quand un paquet est en attente ou en erreur, nouveaux problèmes, problèmes résolus
+- [x] Notifications sur les problèmes qui durent au-delà d'un seuil (`[deployments] alert_days`)
+
 ## Plus tard
 - [ ] Publication sur PyPI (`uvx wapt-analyzer`)

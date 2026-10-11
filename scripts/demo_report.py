@@ -175,6 +175,20 @@ def add_deploy_states(hosts: list[Host], rng: random.Random) -> None:
                                          "install_status": "NEED-INSTALL"})
 
 
+def demo_history(states: list, rng: random.Random) -> dict:
+    """Fictitious history: the issues first seen 0 to 15 days ago, a few new, a few resolved."""
+    now = datetime.now(timezone.utc)
+    run_at = now.isoformat(timespec="seconds")
+    since = {}
+    for s in states:
+        for i in s.errors + s.pending:
+            days = rng.choice([0, 1, 3, 9, 15])
+            since[(s.uuid, i.package, i.kind)] = run_at if days == 0 else (now - timedelta(days=days)).isoformat(
+                timespec="seconds")
+    resolved = [{"host": s.host, "package": f"{PREFIX}-vlc", "kind": "upgrade"} for s in states[:2]]
+    return {"since": since, "run_at": run_at, "resolved": resolved, "now": now}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("-o", "--output", default="demo-report.html")
@@ -204,7 +218,8 @@ def main() -> None:
     recreate = plan_missing_groups(hosts, local_entries)
     add_groups_to_report(data, recreate, suggest_groups(hosts, local_entries, PREFIX, extra_groups=recreate))
     add_deploy_states(hosts, random.Random(7))
-    add_deployments_to_report(data, track_deployments(hosts), 7)
+    states = track_deployments(hosts)
+    add_deployments_to_report(data, states, 7, alert_days=7, **demo_history(states, random.Random(3)))
     write_html(data, Path(args.output))
     print(f"Demo report: {args.output}")
 

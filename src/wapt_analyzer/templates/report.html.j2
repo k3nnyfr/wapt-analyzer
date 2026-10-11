@@ -30,6 +30,9 @@
     <details><summary>{{ n }}</summary><div class="hosts">{{ hosts | join(', ') }}</div></details>
   </td>
 {%- endmacro %}
+{% macro age(i, alert_days) -%}
+  {% if i.new %}<span class="tag new">nouveau</span>{% endif %}{% if i.days %}<span class="tag{% if alert_days and i.days >= alert_days %} restricted{% endif %}" title="observé pour la première fois le {{ i.since }}">depuis {{ i.days }} j</span>{% endif %}
+{%- endmacro %}
 {% macro software_table(id, rows, with_match=True, pickable=False) %}
   {% set folded = rows | selectattr('folded') | list %}
   <div class="toolbar"><input type="search" placeholder="Filtrer…" data-filter="{{ id }}"> <span class="muted count" data-count="{{ id }}"></span>
@@ -127,6 +130,7 @@ h3 .muted { font-size: 13px; font-weight: normal; }
 .tag.restricted { color: var(--warn); border-color: var(--warn); }
 .yes { color: var(--ok); } .no { color: var(--muted); }
 .bad { color: var(--warn); }
+.tag.new { color: var(--accent); border-color: var(--accent); }
 pre.out { font-size: 11.5px; white-space: pre-wrap; max-width: 70ch; margin: 4px 0 0; color: var(--muted); }
 pre.cmd { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px; overflow-x: auto; white-space: pre-wrap; }
 .os { font-size: 12px; border-radius: 4px; padding: 1px 6px; background: var(--accent-soft); color: var(--accent); white-space: nowrap; }
@@ -278,7 +282,8 @@ footer { margin-top: 32px; color: var(--muted); font-size: 12px; }
 {% set dep = data.deployments %}
 <section class="panel" id="deploy">
   <h2>Postes à surveiller</h2>
-  <p class="intro">État remonté par les agents : paquets dont l'installation ou l'audit a échoué, installations et mises à jour en attente (l'agent les connaît mais ne les a pas encore appliquées), et postes qui n'ont pas contacté le serveur depuis {{ dep.stale_days }} jours ou plus (<code>[deployments] stale_days</code>) : leur état est ancien.</p>
+  <p class="intro">État remonté par les agents : paquets dont l'installation ou l'audit a échoué, installations et mises à jour en attente (l'agent les connaît mais ne les a pas encore appliquées), et postes qui n'ont pas contacté le serveur depuis {{ dep.stale_days }} jours ou plus (<code>[deployments] stale_days</code>) : leur état est ancien.{% if dep.history %} L'ancienneté vient de l'historique des rapports précédents (<code>history.sqlite</code> du cache) ; elle est signalée au-delà de {{ dep.alert_days }} jours (<code>[deployments] alert_days</code>).{% endif %}</p>
+  {% if dep.resolved %}<p class="muted">Résolus depuis le rapport précédent : {% for r in dep.resolved %}<code>{{ r.package }}</code> sur {{ r.host }}{% if not loop.last %}, {% endif %}{% endfor %}.</p>{% endif %}
   {% if dep.hosts %}
   <div class="toolbar"><input type="search" placeholder="Filtrer…" data-filter="t-deploy"> <span class="muted count" data-count="t-deploy"></span></div>
   <div class="scroll"><table id="t-deploy" class="sortable">
@@ -288,8 +293,8 @@ footer { margin-top: 32px; color: var(--muted); font-size: 12px; }
       <tr data-os="{{ h.os }}">{{ os_cell(h.os) }}
         <td>{{ h.host }}</td>
         <td class="num{% if h.stale %} bad{% endif %}" data-sort="{{ h.silent_days if h.silent_days is not none else 99999 }}" title="{{ h.last_seen_on }}">{% if h.silent_days is none %}jamais{% else %}{{ h.silent_days }} j{% endif %}</td>
-        <td class="small" data-sort="{{ h.errors | length }}">{% for i in h.errors %}<details><summary><code class="bad">{{ i.package }}</code> {{ i.version }} <span class="tag restricted">{{ 'audit' if i.kind == 'audit' else 'installation' }}{% if i.status == 'WARNING' %} (avertissement){% endif %}</span></summary>{% if i.date %}<div class="desc">{{ i.date }}</div>{% endif %}{% if i.output %}<pre class="out">{{ i.output }}</pre>{% endif %}</details>{% endfor %}</td>
-        <td class="small" data-sort="{{ h.pending | length }}">{% for i in h.pending %}<div><code>{{ i.package }}</code> {% if i.kind == 'upgrade' %}{{ i.installed }} → {{ i.version or '?' }}{% elif i.kind == 'remove' %}<span class="tag">à désinstaller</span>{% else %}{{ i.version }} <span class="tag">à installer</span>{% endif %}</div>{% endfor %}</td></tr>
+        <td class="small" data-sort="{{ h.errors | length }}">{% for i in h.errors %}<details><summary><code class="bad">{{ i.package }}</code> {{ i.version }} <span class="tag restricted">{{ 'audit' if i.kind == 'audit' else 'installation' }}{% if i.status == 'WARNING' %} (avertissement){% endif %}</span>{{ age(i, dep.alert_days) }}</summary>{% if i.date %}<div class="desc">{{ i.date }}</div>{% endif %}{% if i.output %}<pre class="out">{{ i.output }}</pre>{% endif %}</details>{% endfor %}</td>
+        <td class="small" data-sort="{{ h.pending | length }}">{% for i in h.pending %}<div><code>{{ i.package }}</code> {% if i.kind == 'upgrade' %}{{ i.installed }} → {{ i.version or '?' }}{% elif i.kind == 'remove' %}<span class="tag">à désinstaller</span>{% else %}{{ i.version }} <span class="tag">à installer</span>{% endif %}{{ age(i, dep.alert_days) }}</div>{% endfor %}</td></tr>
     {% endfor %}
     </tbody>
   </table></div>

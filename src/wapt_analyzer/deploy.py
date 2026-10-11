@@ -115,16 +115,43 @@ def by_package(states: list[HostDeployment]) -> list[dict]:
     return sorted(rows, key=lambda r: (-len(r["errors"]), -len(r["pending"]), r["package"]))
 
 
-def add_to_report(data: dict, states: list[HostDeployment], stale_days: int) -> None:
-    """Report section « Déploiements » and its counters."""
+def _issue_dict(state: HostDeployment, issue: Issue, since: dict | None, now: datetime, run_at: str) -> dict:
+    data = issue.__dict__.copy()
+    first = (since or {}).get((state.uuid, issue.package, issue.kind))
+    if first:
+        seen = _parse_date(first)
+        failed = _parse_date(issue.date) if issue.kind == "error" else None
+        if failed and seen and failed < seen:    # failed before the history started: the agent knows when
+            first, seen = failed.isoformat(timespec="seconds"), failed
+        data.update(since=first, days=(now - seen).days if seen else None,
+                    new=(since or {}).get((state.uuid, issue.package, issue.kind)) == run_at)
+    return data
+
+
+def add_to_report(data: dict, states: list[HostDeployment], stale_days: int, *, since: dict | None = None,
+                  alert_days: int = 0, resolved: list[dict] | None = None, run_at: str = "",
+                  now: datetime | None = None) -> None:
+    """Report section « Déploiements » and its counters.
+
+    With the history (``since``: first observation of each open issue), each issue gets its age (``days``), and
+    ``new`` when first seen by this report (``run_at``, empty on the first recorded report: everything would be
+    new); ``resolved``: issues closed by this report."""
+    now = now or datetime.now(timezone.utc)
     issues = [s for s in states if s.has_issue]
+    hosts = [{"host": s.host, "uuid": s.uuid, "os": s.os, "last_seen_on": s.last_seen_on,
+              "silent_days": s.silent_days, "stale": s.stale,
+              "errors": [_issue_dict(s, i, since, now, run_at) for i in s.errors],
+              "pending": [_issue_dict(s, i, since, now, run_at) for i in s.pending]} for s in issues]
+    lasting = [(h, i) for h in hosts for i in h["errors"] + h["pending"]
+               if alert_days and (i.get("days") or 0) >= alert_days]
     data["deployments"] = {
         "stale_days": stale_days,
-        "hosts": [{"host": s.host, "uuid": s.uuid, "os": s.os, "last_seen_on": s.last_seen_on,
-                   "silent_days": s.silent_days, "stale": s.stale,
-                   "errors": [i.__dict__.copy() for i in s.errors],
-                   "pending": [i.__dict__.copy() for i in s.pending]} for s in issues],
+        "history": since is not None,
+        "alert_days": alert_days,
+        "hosts": hosts,
         "packages": by_package(states),
+        "lasting": [{"host": h["host"], "uuid": h["uuid"], **i} for h, i in lasting],
+        "resolved": resolved or [],
     }
     data["summary"].update(
         deploy_hosts=len(issues),
@@ -133,3 +160,5 @@ def add_to_report(data: dict, states: list[HostDeployment], stale_days: int) -> 
         deploy_pending_hosts=sum(1 for s in states if s.pending),
         stale_hosts=sum(1 for s in states if s.stale),
     )
+    if since is not None:
+        data["summary"]["deploy_lasting"] = len(lasting)

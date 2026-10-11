@@ -30,6 +30,16 @@ class Addition:
 
 
 @dataclass
+class Fix:
+    """A host package dependency absent from the repository (``hosts --fix-missing``)."""
+    package: str          # dependency name in the host package
+    action: str           # import (from the store) / remove
+    reason: str
+    store: str = ""       # store package to import
+    target: str = ""      # its name once imported (your prefix)
+
+
+@dataclass
 class HostPlan:
     host: Host
     family: str
@@ -39,6 +49,7 @@ class HostPlan:
     not_in_repo: list[str] = field(default_factory=list)  # explicit installed packages missing from the repo
     missing_groups: list[str] = field(default_factory=list)  # installed groups missing from the repo
     on_server: bool | None = None                         # host package present on the server (None: unknown)
+    fixes: list[Fix] = field(default_factory=list)        # dependencies absent from the repository
 
     @property
     def exists(self) -> bool:
@@ -51,11 +62,19 @@ class HostPlan:
 
     @property
     def needs_upload(self) -> bool:
-        return bool(self.additions) or self.missing_on_server
+        return bool(self.additions) or self.missing_on_server or any(f.target != f.package for f in self.fixes)
 
     @property
     def depends(self) -> list[str]:
-        return self.current + [a.package for a in self.additions if a.package not in self.current]
+        fixes = {f.package: f for f in self.fixes}
+        current = []
+        for dep in self.current:
+            fix = fixes.get(dep.split("(")[0].strip())
+            if fix is None:
+                current.append(dep)
+            elif fix.target and fix.target not in current:
+                current.append(fix.target)          # imported under your prefix: renamed, constraint dropped
+        return current + [a.package for a in self.additions if a.package not in current]
 
 
 def base_name(name: str) -> str:
@@ -119,7 +138,11 @@ class RepoView:
 
 def plan_host(host: Host, repo_entries: list[PackageEntry], prefix: str, *, unmanaged: list[SoftwareGroup] = (),
               exclude: Iterable[str] = (), version: str = "", current: list[str] | None = None,
-              on_server: bool | None = None, assign_groups: bool = False, assign_share: float = 0.8) -> HostPlan:
+              on_server: bool | None = None, assign_groups: bool = False, assign_share: float = 0.8,
+              store: dict[str, PackageEntry] | None = None, store_prefix: str = "tis",
+              restricted: tuple[str, ...] = ()) -> HostPlan:
+    """``store`` (store packages of the host family, by name) enables ``fix_missing``: the dependencies absent from
+    the repository are imported from the store when it has them, removed otherwise."""
     family = host.os_family
     installed_depends = {p["package"]: list(p.get("depends") or []) for p in host.installed_packages
                          if p.get("package") and p.get("section") in ("base", "group")}
@@ -180,13 +203,37 @@ def plan_host(host: Host, repo_entries: list[PackageEntry], prefix: str, *, unma
             continue
         plan.additions.append(Addition(local.package, "adopt", f"hors WAPT : {sorted(group.names)[0]}"))
         added.add(base)
+    if store is not None:
+        plan.fixes = plan_fixes(plan, repo_entries, groups, store, prefix, store_prefix, restricted)
     return plan
+
+
+def plan_fixes(plan: HostPlan, repo_entries: list[PackageEntry], installed_groups: list[str],
+               store: dict[str, PackageEntry], prefix: str, store_prefix: str,
+               restricted: tuple[str, ...]) -> list[Fix]:
+    available = {e.package for e in repo_entries if plan.family in entry_os_families(e)}
+    fixes = []
+    for dep in plan.current:
+        name = dep.split("(")[0].strip()
+        if not name or name in available or name in installed_groups:   # missing groups: groups command
+            continue
+        entry = store.get(f"{store_prefix}-{base_name(name)}")
+        licence = entry.restricted_by(restricted) if entry else ""
+        if entry and not licence:
+            fixes.append(Fix(name, "import", f"dans le store : {entry.package} {entry.version}",
+                             store=entry.package, target=f"{prefix}-{entry.base}"))
+        else:
+            reason = (f"absent du dépôt, réservé aux abonnés dans le store ({licence})" if licence
+                      else "absent du dépôt et du store")
+            fixes.append(Fix(name, "remove", reason))
+    return fixes
 
 
 def plan_hosts(hosts: list[Host], repo_entries: list[PackageEntry], prefix: str, *,
                unmanaged: list[SoftwareGroup] = (), exclude: Iterable[str] = (),
                server_packages: dict[str, dict] | None = None, assign_groups: bool = False,
-               assign_share: float = 0.8) -> list[HostPlan]:
+               assign_share: float = 0.8, store: dict[str, dict[str, PackageEntry]] | None = None,
+               store_prefix: str = "tis", restricted: tuple[str, ...] = ()) -> list[HostPlan]:
     """One plan per host; ``server_packages`` (from the server API) gives the current version and depends.
 
     Without it, a host package is deemed missing from the server when the server lists no dependency for the
@@ -207,7 +254,9 @@ def plan_hosts(hosts: list[Host], repo_entries: list[PackageEntry], prefix: str,
             version = str(stored.get("version") or "")
         plans.append(plan_host(host, repo_entries, prefix, unmanaged=unmanaged, exclude=exclude,
                                version=version, current=current, on_server=on_server,
-                               assign_groups=assign_groups, assign_share=assign_share))
+                               assign_groups=assign_groups, assign_share=assign_share,
+                               store=None if store is None else store.get(host.os_family, {}),
+                               store_prefix=store_prefix, restricted=restricted))
     return plans
 
 

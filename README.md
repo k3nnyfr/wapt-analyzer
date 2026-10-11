@@ -2,7 +2,7 @@
 
 <img src="docs/images/wapt-analyzer-logo-128.png" alt="wapt-analyzer logo" width="128">
 
-![release](https://img.shields.io/badge/release-v0.11.0-blue.svg)
+![release](https://img.shields.io/badge/release-v0.12.0-blue.svg)
 
 Outil en ligne de commande pour entretenir le dépôt de paquets d'un serveur [WAPT](https://www.wapt.fr). Il compare ce dépôt, le store public Tranquil IT et l'inventaire des postes, puis aide à combler les écarts.
 
@@ -43,7 +43,7 @@ uv run wapt-analyzer import --from-report wapt-report.json -i        # 2. choisi
 uv run wapt-analyzer import --from-report wapt-report.json --apply   #    puis importer
 uv run wapt-analyzer import --update --apply --cleanup --upgrade-hosts   # 3. mettre à jour, nettoyer, déployer
 uv run wapt-analyzer groups --apply                                  # 4. recréer les groupes disparus
-uv run wapt-analyzer hosts --adopt -i --apply                        # 5. compléter les paquets machine
+uv run wapt-analyzer hosts --adopt --fix-missing -i --apply          # 5. compléter et réparer les paquets machine
 ```
 
 ## Documentation

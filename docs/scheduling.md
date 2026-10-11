@@ -6,7 +6,7 @@
 - **par mail** (SMTP), avec le rapport HTML en pièce jointe ;
 - **par webhook**, en JSON brut, au format Slack (compatible Mattermost, Rocket.Chat…) ou en carte Microsoft Teams (Workflows). On peut déclarer plusieurs webhooks.
 
-Le résumé reprend les compteurs du rapport, dont ceux des [déploiements](report.md#suivi-des-déploiements) (postes en erreur, installations en attente, postes muets), puis les **nouveautés depuis le dernier envoi** : erreurs de déploiement, mises à jour disponibles, paquets manquants, logiciels à importer (dix par rubrique au plus).
+Le résumé reprend les compteurs du rapport, dont ceux des [déploiements](report.md#suivi-des-déploiements) (postes en erreur, installations en attente, postes muets), puis les **nouveautés depuis le dernier envoi** : erreurs de déploiement, problèmes de déploiement qui atteignent `[deployments] alert_days` jours (une seule fois, le jour où ils franchissent le seuil), mises à jour disponibles, paquets manquants, logiciels à importer (dix par rubrique au plus).
 
 ```toml
 [notify]

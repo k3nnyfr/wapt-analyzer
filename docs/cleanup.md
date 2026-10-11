@@ -58,7 +58,7 @@ Un paquet (de base ou groupe) est **utilisé** s'il est installé ou en attente 
 - ceux exclus par `[cleanup] exclude` ou `[import] exclude` (`waptupgrade`, `waptagent`…) ;
 - ceux d'un autre préfixe, sauf avec `--all-prefixes`. Les groupes sont traités quel que soit leur préfixe.
 
-La même commande liste les **dépendances absentes du dépôt** : paquets réclamés par un paquet du dépôt ou par le paquet machine d'un poste, mais qu'aucun poste ne peut installer. Il faut alors les importer, ou les retirer des paquets qui en dépendent.
+La même commande liste les **dépendances absentes du dépôt** : paquets réclamés par un paquet du dépôt ou par le paquet machine d'un poste, mais qu'aucun poste ne peut installer. Il faut alors les importer, ou les retirer des paquets qui en dépendent : [`hosts --fix-missing`](hosts.md#dépendances-absentes-du-dépôt) le fait pour les paquets machine.
 
 ```text
 Dependencies missing from the repository (2): hosts cannot install them

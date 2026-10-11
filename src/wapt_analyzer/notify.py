@@ -27,6 +27,7 @@ COUNTS = [  # summary key, label
     ("deploy_error_hosts", "postes avec un paquet en erreur"),
     ("deploy_pending_hosts", "postes avec des installations en attente"),
     ("stale_hosts", "postes muets depuis plusieurs jours"),
+    ("deploy_lasting", "problèmes de déploiement qui durent"),
 ]
 
 
@@ -51,13 +52,21 @@ def report_items(data: dict) -> dict[str, dict[str, str]]:
         "deploy_errors": {f"{h['uuid']}|{i['kind']}|{i['package']}|{i['version']}":
                           f"{h['host']} : {i['package']} {i['version']} ({ERROR_KINDS.get(i['kind'], i['kind'])})"
                           for h in data.get("deployments", {}).get("hosts", []) for i in h["errors"]},
+        # Keyed without the age: notified once, when the issue crosses the threshold
+        "deploy_lasting": {f"{i['uuid']}|{i['kind']}|{i['package']}":
+                           f"{i['host']} : {i['package']} {i['version']} "
+                           f"({LASTING_KINDS.get(i['kind'], i['kind'])} depuis {i['days']} j)"
+                           for i in data.get("deployments", {}).get("lasting", [])},
     }
 
 
 ERROR_KINDS = {"error": "installation en erreur", "audit": "audit en erreur"}
+LASTING_KINDS = {**ERROR_KINDS, "install": "installation en attente", "upgrade": "mise à jour en attente",
+                 "remove": "désinstallation en attente"}
 
 CHANGE_LABELS = {
     "deploy_errors": "Erreurs de déploiement",
+    "deploy_lasting": "Problèmes de déploiement qui durent",
     "outdated": "Mises à jour",
     "missing_packages": "Paquets manquants",
     "software_to_import": "Logiciels à importer",

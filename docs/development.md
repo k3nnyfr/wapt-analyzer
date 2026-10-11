@@ -30,6 +30,7 @@ Les tests n'ont besoin ni de serveur WAPT ni d'agent. Ceux du certificat client 
 | `cleanup.py` | Versions supprimables du dépôt |
 | `hostpkg.py` | Paquets machine : dépendances à ajouter, reconstruction |
 | `actions.py` | Actions à distance sur les agents : cibles, signature, Wake-on-LAN |
+| `history.py` | Historique des déploiements (SQLite) : problèmes ouverts, résolus, ancienneté |
 | `deploy.py` | Suivi des déploiements : paquets en erreur, installations en attente, postes muets |
 | `grouppkg.py` | Paquets groupe : groupes disparus à recréer, groupes suggérés |
 | `notify.py` | Résumé du rapport par mail et webhook |

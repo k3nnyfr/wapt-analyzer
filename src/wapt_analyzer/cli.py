@@ -8,6 +8,7 @@ import logging
 import shutil
 import sys
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
@@ -22,6 +23,7 @@ from .deploy import track_deployments
 from .fetch import USER_AGENT, Cache, fetch_cached
 from .grouppkg import GroupPlan, group_control, plan_missing_groups, suggest_groups
 from .grouppkg import add_to_report as add_groups_to_report
+from .history import HISTORY_FILE, DeployHistory
 from .hostpkg import add_to_report, control_for, next_version, plan_hosts
 from .importer import (
     ImportFailed,
@@ -183,6 +185,9 @@ def build_parser() -> argparse.ArgumentParser:
                      help="Also add the repository packages of software installed outside WAPT")
     hst.add_argument("--groups", action="store_true",
                      help="Also add the repository groups whose packages are mostly installed on the host")
+    hst.add_argument("--fix-missing", action="store_true",
+                     help="Fix the dependencies absent from the repository: import them from the store when it has "
+                          "them, remove them from the host packages otherwise")
     hst.add_argument("-i", "--interactive", action="store_true", help="Choose the additions in a checklist")
     hst.add_argument("--apply", action="store_true", help="Really sign and upload the host packages")
     hst.add_argument("--no-upload", action="store_true", help="Sign only, keep the host packages in --output-dir")
@@ -399,8 +404,18 @@ def cmd_report(cfg: dict, args: argparse.Namespace) -> int:
         "store_page_url": f"https://wapt.tranquil.it/store/{lang}" if "wapt.tranquil.it" in idx.store_url else "",
     }
     data = to_dict(result, context, lang, restricted_licences=cfg["store"]["restricted_licences"])
-    stale_days = int(cfg["deployments"]["stale_days"])
-    add_deployments_to_report(data, track_deployments(hosts, stale_days), stale_days)
+    dep = cfg["deployments"]
+    stale_days = int(dep["stale_days"])
+    states = track_deployments(hosts, stale_days)
+    history = {}
+    if dep["history"]:
+        with DeployHistory(Path(cfg["cache"]["directory"]).expanduser() / HISTORY_FILE) as db:
+            first_run = db.runs() == 0
+            if not args.offline:   # the cached inventory is old: read the history, do not extend it
+                run_at = db.record(states, datetime.now(timezone.utc))
+                history = {"run_at": "" if first_run else run_at, "resolved": db.resolved_on(run_at)}
+            history["since"] = db.open_since()
+    add_deployments_to_report(data, states, stale_days, alert_days=int(dep["alert_days"]), **history)
     if prefix:
         add_to_report(data, plan_hosts(hosts, idx.repo_entries, prefix, unmanaged=result.software_unmanaged,
                                        exclude=cfg["hosts"]["exclude"], assign_groups=True,
@@ -426,7 +441,8 @@ def cmd_report(cfg: dict, args: argparse.Namespace) -> int:
         f"{sm['software_unmatched']} unmatched (+{sm['software_folded']} folded) | {sm['outdated']} outdated")
     say(f"Deployments: {sm['deploy_error_hosts']} host(s) in error ({sm['deploy_errors']} package(s)) | "
         f"{sm['deploy_pending_hosts']} with pending installs | {sm['stale_hosts']} silent for "
-        f"{stale_days}+ days")
+        f"{stale_days}+ days" + (f" | {sm['deploy_lasting']} lasting {dep['alert_days']}+ days"
+                                 if "deploy_lasting" in sm else ""))
     if args.notify and notify(cfg, data, cache, html):
         return 1
     return 0
@@ -587,7 +603,9 @@ def cmd_hosts(cfg: dict, args: argparse.Namespace) -> int:
         unmanaged = run_analysis(cfg, idx, hosts).software_unmanaged if args.adopt else []
         plans = plan_hosts(hosts, idx.repo_entries, prefix, unmanaged=unmanaged, exclude=cfg["hosts"]["exclude"],
                            server_packages=stored, assign_groups=args.groups,
-                           assign_share=float(cfg["groups"]["assign_share"]))
+                           assign_share=float(cfg["groups"]["assign_share"]),
+                           store=idx.store if args.fix_missing else None, store_prefix=cfg["store"]["prefix"],
+                           restricted=tuple(cfg["store"]["restricted_licences"]))
         return _run_hosts(cfg, args, idx, server, plans, stored)
     finally:
         server.logout()
@@ -598,19 +616,25 @@ def _run_hosts(cfg: dict, args: argparse.Namespace, idx: Indexes, server: WaptSe
     if args.interactive:
         choices = [Choice((i, a.package), plan.host.name, (a.package, a.reason), selected=True)
                    for i, plan in enumerate(plans) for a in plan.additions]
+        choices += [Choice((i, f"fix:{f.package}"), plan.host.name,
+                           (f.package, f"{'importer' if f.action == 'import' else 'retirer'} : {f.reason}"),
+                           selected=True)
+                    for i, plan in enumerate(plans) for f in plan.fixes]
         if choices:
-            picked = pick(choices, f"Dépendances à ajouter aux paquets machine ({len(choices)})")
+            picked = pick(choices, f"Modifications des paquets machine ({len(choices)})")
             if picked is None:
                 print("Aborted.")
                 return 1
             keep = set(picked)
             for i, plan in enumerate(plans):
                 plan.additions = [a for a in plan.additions if (i, a.package) in keep]
+                plan.fixes = [f for f in plan.fixes if (i, f"fix:{f.package}") in keep]
 
     todo = [p for p in plans if p.needs_upload]
+    imports = sorted({f.store for p in plans for f in p.fixes if f.action == "import"})
     print(f"Host packages plan ({len(todo)} to upload, {len(plans) - len(todo)} unchanged):")
     for plan in plans:
-        if not plan.needs_upload and not plan.not_in_repo and not plan.missing_groups:
+        if not plan.needs_upload and not plan.not_in_repo and not plan.missing_groups and not plan.fixes:
             continue
         os_label = OS_LABELS.get(plan.family, plan.family)
         if not plan.needs_upload:
@@ -627,16 +651,35 @@ def _run_hosts(cfg: dict, args: argparse.Namespace, idx: Indexes, server: WaptSe
                   f"{len(plan.current)} -> {len(plan.depends)} dependencies")
         for a in plan.additions:
             print(f"    + {a.package:<32} {a.reason}")
+        for f in plan.fixes:
+            if f.action == "remove":
+                print(f"    - {f.package:<32} {f.reason}")
+            else:
+                renamed = f", renamed {f.target}" if f.target != f.package else ""
+                print(f"    ~ {f.package:<32} imported from the store{renamed} ({f.reason})")
         if plan.missing_groups:
             print(f"    ! installed groups missing from the repository (recreate them with the groups command): "
                   f"{', '.join(plan.missing_groups)}")
         if plan.not_in_repo:
             print(f"    ! installed but missing from the repository: {', '.join(plan.not_in_repo)}")
-    if not todo:
+    if imports:
+        print(f"Store packages to import first ({len(imports)}): {', '.join(imports)}")
+    if not todo and not imports:
         return 0
     if not args.apply:
-        print("Dry run: nothing done. Add --apply to sign and upload the host packages.")
+        print("Dry run: nothing done. Add --apply to " + ("import the missing dependencies, then " if imports else "")
+              + "sign and upload the host packages.")
         return 0
+    if imports:
+        print("\nImport of the missing dependencies:")
+        import_args = build_parser().parse_args(["import", *imports, "--apply", *(["-y"] if args.yes else [])])
+        code = cmd_import(cfg, import_args)
+        if code:
+            log.error("The import of the missing dependencies failed: host packages left unchanged")
+            return code
+        if not todo:
+            return 0
+        print()
 
     jobs = [ManagementJob(p.host.uuid, p.host.name, "host",
                           control_for(p, stored.get(p.host.uuid) or stored.get(p.host.name)))

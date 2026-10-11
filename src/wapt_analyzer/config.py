@@ -130,6 +130,8 @@ DEFAULTS: dict = {
     },
     "deployments": {
         "stale_days": 7,              # a host silent for this many days is reported (its state is stale)
+        "history": True,              # record the deployment issues in <cache>/history.sqlite
+        "alert_days": 7,              # report --notify: issues lasting this many days are notified (0: never)
     },
     "report": {
         "output": "wapt-report.html",

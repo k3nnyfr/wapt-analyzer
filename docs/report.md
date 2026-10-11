@@ -86,9 +86,20 @@ L'onglet **Déploiements** montre si les paquets envoyés au serveur arrivent bi
 
 Un second tableau regroupe les mêmes informations par paquet : un paquet en échec sur plusieurs postes pointe plutôt vers un problème du paquet lui-même. L'export CSV ajoute `deployments.csv`, et [`report --notify`](scheduling.md) signale les nouvelles erreurs. [`upgrade`](upgrade.md) demande aux postes concernés d'appliquer tout de suite leurs installations en attente.
 
+### Historique
+
+Le serveur WAPT ne garde que l'état actuel des postes. Chaque `report` en ligne enregistre donc les problèmes de déploiement qu'il observe dans une base SQLite locale, `history.sqlite` dans le dossier de cache. Le rapport peut ainsi dire depuis quand un problème existe :
+
+- **depuis N j** : un problème (poste, paquet, type) est suivi tant qu'il est observé. Pour une installation en erreur, la date de l'échec remontée par l'agent est retenue si elle est plus ancienne. Au-delà de `[deployments] alert_days` (7 jours par défaut), l'ancienneté est mise en évidence ;
+- **nouveau** : le problème est apparu depuis le rapport précédent ;
+- **résolus depuis le rapport précédent** : problèmes qui ont disparu d'un poste toujours présent dans l'inventaire. S'ils reviennent plus tard, leur ancienneté repart de zéro.
+
+Un poste absent de l'inventaire (filtré par `--os`, ou supprimé) garde ses problèmes ouverts en l'état. `report --offline` lit l'historique sans l'enrichir, puisque l'inventaire en cache est ancien. Les problèmes résolus depuis plus de 400 jours sont oubliés. Pour ne rien enregistrer : `[deployments] history = false`.
+
 ```toml
 [deployments]
 stale_days = 14   # un poste muet depuis 14 jours est signalé
+alert_days = 3    # ancienneté signalée (et notifiée) à partir de 3 jours ; 0 pour ne jamais notifier
 ```
 
 ![Rapport de démonstration : onglet « Déploiements », paquets en erreur et mises à jour en attente par poste](images/report-deploy.png)

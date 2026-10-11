@@ -32,8 +32,25 @@ exclude = ["waptupgrade"]     # paquets (sans préfixe) jamais ajoutés aux paqu
 | `HOST…` | Limite aux postes indiqués (nom court, FQDN ou uuid) |
 | `--adopt` | Ajoute aussi les paquets des logiciels installés hors WAPT |
 | `--groups` | Ajoute aussi les groupes du dépôt dont le poste a déjà la plupart des paquets |
+| `--fix-missing` | Corrige les dépendances absentes du dépôt (voir ci-dessous) |
 | `-i`, `--interactive` | Choisit les ajouts dans une liste à cocher |
 | `--apply`, `-y` | Signe et envoie les paquets machine ; `-y` saute la confirmation |
 | `--no-upload`, `--output-dir` | Signe sans envoyer, pour vérifier les paquets ; dossier des paquets signés |
 | `--keep-files` | Garde les paquets signés après l'upload (défaut : supprimés une fois envoyés ; `[import] keep_files`) |
 | `--certificate`, `--private-key`, `--key-password-file` | Clé de signature, comme pour `import` |
+
+## Dépendances absentes du dépôt
+
+Un paquet machine peut lister un paquet qui n'est plus dans le dépôt (supprimé, jamais importé, renommé) : le poste ne peut pas l'installer. `cleanup --unused` les signale, `hosts --fix-missing` les corrige :
+
+```bash
+uv run wapt-analyzer hosts --fix-missing        # simulation
+uv run wapt-analyzer hosts --fix-missing -i --apply
+```
+
+Pour chaque dépendance absente :
+- **le store la propose** : elle est importée (téléchargée, vérifiée, signée avec votre clé, comme avec [`import`](import.md)) avant l'envoi des paquets machine. Une dépendance au préfixe du store (`tis-teamviewer`) devient `tsi-teamviewer` ;
+- **le store ne la propose pas**, ou seulement aux abonnés : elle est retirée du paquet machine.
+
+Les groupes absents du dépôt ne sont pas touchés : [`groups`](groups.md) les recrée. Avec `-i`, chaque import ou retrait se coche ou se décoche. Si l'import échoue, les paquets machine ne sont pas modifiés.
+
