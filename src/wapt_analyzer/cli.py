@@ -7,6 +7,7 @@ import json
 import logging
 import shutil
 import sys
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,6 +24,7 @@ from .deploy import track_deployments
 from .fetch import USER_AGENT, Cache, fetch_cached
 from .grouppkg import GroupPlan, group_control, plan_missing_groups, suggest_groups
 from .grouppkg import add_to_report as add_groups_to_report
+from .health import add_to_report as add_health_to_report
 from .history import HISTORY_FILE, DeployHistory
 from .hostpkg import add_to_report, control_for, next_version, plan_hosts
 from .importer import (
@@ -253,6 +255,17 @@ def build_parser() -> argparse.ArgumentParser:
     upg.add_argument("-y", "--yes", action="store_true", help="Do not ask for confirmation")
     _signing_options(upg)
 
+    aut = sub.add_parser(
+        "autopilot", parents=[common],
+        help="Scheduled maintenance: report, store updates, host upgrades, cleanup, summary (dry run by default)",
+        description="Run from cron or a systemd timer: write the report, import the store updates allowed by "
+                    "[autopilot] (at most max_updates at once), ask the hosts to upgrade, clean the superseded "
+                    "versions and send one summary through [notify]. Nothing is changed without --apply.",
+    )
+    aut.add_argument("--apply", action="store_true", help="Really import, upgrade and clean (default: dry run)")
+    aut.add_argument("--no-notify", action="store_true", help="Do not send the summary")
+    _signing_options(aut)
+
     prg = sub.add_parser(
         "purge",
         help="Delete the downloaded and signed packages left in the work directory (dry run by default)",
@@ -379,6 +392,14 @@ def run_analysis(cfg: dict, idx: Indexes, hosts: list) -> AnalysisResult:
 
 
 def cmd_report(cfg: dict, args: argparse.Namespace) -> int:
+    data, html, cache = build_report(cfg, args)
+    if args.notify and notify(cfg, data, cache, html):
+        return 1
+    return 0
+
+
+def build_report(cfg: dict, args: argparse.Namespace) -> tuple[dict, str, Cache]:
+    """Analyse, write the report files; returns the report data, its HTML and the cache."""
     cache = _cache(cfg, args.offline)
     idx = load_indexes(cfg, cache)
     prefix = cfg["repo"]["prefix"]
@@ -388,9 +409,20 @@ def cmd_report(cfg: dict, args: argparse.Namespace) -> int:
             log.info("Repository also contains prefixes: %s", ", ".join(foreign))
 
     server = None
-    if not args.offline:
+    agent_version = ""
+    if args.offline:
+        hosts = load_inventory(None, cache)
+    else:
         server = connect(cfg, idx)
-    hosts = load_inventory(server, cache, workers=int(cfg["server"]["workers"]))
+        server.login()
+        try:
+            hosts = load_inventory(server, cache, workers=int(cfg["server"]["workers"]), session=False)
+            try:
+                agent_version = server.agent_version()
+            except (WaptServerError, requests.RequestException) as e:
+                log.info("Agent version of the server unknown (%s): newest version seen on the hosts", e)
+        finally:
+            server.logout()
     families = cfg["filters"]["families"]
     if families:
         hosts = [h for h in hosts if h.os_family in families]
@@ -416,6 +448,10 @@ def cmd_report(cfg: dict, args: argparse.Namespace) -> int:
                 history = {"run_at": "" if first_run else run_at, "resolved": db.resolved_on(run_at)}
             history["since"] = db.open_since()
     add_deployments_to_report(data, states, stale_days, alert_days=int(dep["alert_days"]), **history)
+    hl = cfg["health"]
+    add_health_to_report(data, hosts, agent_version=agent_version, certificate=cfg["signing"]["certificate"],
+                         os_warn_days=int(hl["os_warn_days"]), cert_warn_days=int(hl["cert_warn_days"]),
+                         macos_min=str(hl["macos_min_version"]))
     if prefix:
         add_to_report(data, plan_hosts(hosts, idx.repo_entries, prefix, unmanaged=result.software_unmanaged,
                                        exclude=cfg["hosts"]["exclude"], assign_groups=True,
@@ -443,9 +479,9 @@ def cmd_report(cfg: dict, args: argparse.Namespace) -> int:
         f"{sm['deploy_pending_hosts']} with pending installs | {sm['stale_hosts']} silent for "
         f"{stale_days}+ days" + (f" | {sm['deploy_lasting']} lasting {dep['alert_days']}+ days"
                                  if "deploy_lasting" in sm else ""))
-    if args.notify and notify(cfg, data, cache, html):
-        return 1
-    return 0
+    say(f"Health: {sm['health_os_ended']} host(s) on an unsupported OS, {sm['health_os_soon']} soon | "
+        f"{sm['health_agents_outdated']} outdated WAPT agent(s)")
+    return data, html, cache
 
 
 def _human_size(n: int) -> str:
@@ -832,6 +868,94 @@ def cmd_cleanup(cfg: dict, args: argparse.Namespace) -> int:
                        all_prefixes=args.all_prefixes)
 
 
+@contextmanager
+def _single_run(path: Path):
+    """Exclusive lock: a cron run never overlaps the previous one. Yields False if it is still running."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w") as f:
+        try:
+            import fcntl
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except ImportError:      # no fcntl (native Windows): no lock
+            pass
+        except OSError:
+            yield False
+            return
+        yield True
+
+
+def cmd_autopilot(cfg: dict, args: argparse.Namespace) -> int:
+    with _single_run(Path(cfg["cache"]["directory"]).expanduser() / "autopilot.lock") as alone:
+        if not alone:
+            log.error("Another autopilot run is still in progress")
+            return 1
+        return _autopilot(cfg, args)
+
+
+def _autopilot(cfg: dict, args: argparse.Namespace) -> int:
+    ap, prefix = cfg["autopilot"], cfg["repo"]["prefix"]
+    if not prefix:
+        log.error("No prefix: use --prefix or [repo] prefix in the configuration")
+        return 2
+    if ap["upgrade"] not in ("imported", "pending", "none"):
+        log.error("[autopilot] upgrade: %r (expected imported, pending or none)", ap["upgrade"])
+        return 2
+    print("== Report")
+    data, html, cache = build_report(cfg, build_parser().parse_args(["report", "-q"]))
+    summary: list[str] = []
+    code, acted = 0, False
+
+    names: list[str] = []
+    if ap["updates"]:
+        print("\n== Store updates")
+        idx = load_indexes(cfg, cache)
+        families = cfg["filters"]["families"] or list(OS_FAMILIES)
+        requested = _update_requests(cfg, idx, families, names=list(ap["packages"]))
+        plan = plan_imports(requested, idx.store, idx.repo, prefix, with_deps=cfg["import"]["dependencies"],
+                            excluded_bases=tuple(cfg["import"]["exclude"]),
+                            restricted_licences=tuple(cfg["store"]["restricted_licences"]))
+        todo = [p for p in plan if not p.skip]
+        names = sorted({p.entry.base for p in todo})
+        limit = int(ap["max_updates"])
+        if not todo:
+            summary.append("Mises à jour : aucune.")
+        elif limit and len(todo) > limit:
+            summary.append(f"Mises à jour : {len(todo)} disponibles, plus que la limite de {limit} "
+                           f"([autopilot] max_updates) : rien importé, à examiner ({', '.join(names)}).")
+            names, code = [], 1
+        elif not args.apply:
+            summary.append(f"Mises à jour (simulation) : {', '.join(names)}.")
+        else:
+            flags = ["--cleanup"] * bool(ap["cleanup"]) + ["--upgrade-hosts"] * (ap["upgrade"] == "imported")
+            step = cmd_import(cfg, build_parser().parse_args(["import", "--update", *names, "--apply", "-y", *flags]))
+            acted = True
+            summary.append(f"Mises à jour importées : {', '.join(names)}"
+                           + (" (versions remplacées nettoyées)" if ap["cleanup"] else "")
+                           + (", postes concernés relancés." if ap["upgrade"] == "imported" else ".")
+                           + (f" Échec partiel (code {step}), voir le journal." if step else ""))
+            code = code or step
+
+    if ap["upgrade"] == "pending":
+        print("\n== Host upgrades")
+        step = cmd_upgrade(cfg, build_parser().parse_args(["upgrade", "-y", *(["--apply"] if args.apply else [])]))
+        acted = acted or args.apply
+        summary.append("Postes ayant des installations en attente : mise à jour "
+                       + ("demandée." if args.apply else "prévue (simulation).")
+                       + (f" Échec (code {step}), voir le journal." if step else ""))
+        code = code or step
+
+    print("\n== Summary")
+    for line in summary:
+        print(f"  {line}")
+    destinations = cfg["notify"].get("email") or cfg["notify"].get("webhook")
+    if args.apply and ap["notify"] and not args.no_notify and destinations:
+        if notify(cfg, data, cache, html, autopilot=summary, force=acted or bool(code)):
+            code = code or 1
+    elif not args.apply:
+        print("Dry run: nothing imported nor sent. Add --apply (e.g. in cron) to run the maintenance.")
+    return code
+
+
 def _package_names(cfg: dict, names: list[str]) -> list[str]:
     """Full package names: firefox -> tsi-firefox (names already carrying a prefix are kept)."""
     prefix = cfg["repo"]["prefix"]
@@ -1207,6 +1331,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_groups(cfg, args)
         if args.command == "upgrade":
             return cmd_upgrade(cfg, args)
+        if args.command == "autopilot":
+            return cmd_autopilot(cfg, args)
         if args.command == "purge":
             return cmd_purge(cfg, args)
     except (WaptServerError, ImportFailed, NotifyError, RuntimeError, OSError, ValueError) as e:

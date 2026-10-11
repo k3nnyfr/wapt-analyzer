@@ -133,6 +133,20 @@ DEFAULTS: dict = {
         "history": True,              # record the deployment issues in <cache>/history.sqlite
         "alert_days": 7,              # report --notify: issues lasting this many days are notified (0: never)
     },
+    "health": {
+        "os_warn_days": 90,           # OS whose support ends within this many days are flagged
+        "cert_warn_days": 30,         # signer certificate expiring within this many days is flagged
+        "macos_min_version": "15",    # oldest macOS major version still patched by Apple
+    },
+    # `autopilot`: scheduled maintenance (cron), nothing changed without --apply
+    "autopilot": {
+        "updates": True,              # import the store updates of the repository packages
+        "packages": [],               # only these packages (name without prefix); empty: every package
+        "max_updates": 10,            # more updates at once: nothing imported, to review (0: no limit)
+        "cleanup": True,              # remove the versions superseded by the imported ones
+        "upgrade": "imported",        # hosts asked to upgrade: imported (having the updated packages), pending, none
+        "notify": True,               # send the summary through [notify]
+    },
     "report": {
         "output": "wapt-report.html",
         "json": "",

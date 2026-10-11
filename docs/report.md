@@ -14,6 +14,7 @@
 | **Liste d'import** | Liste consolidée des paquets du store à importer |
 | **Paquets groupe** | Groupes installés sur les postes mais absents du dépôt, groupes « socle commun » suggérés (voir [`groups`](groups.md)) |
 | **Déploiements** | Paquets en erreur (installation ou audit), installations et mises à jour en attente, postes muets depuis plusieurs jours (voir [Suivi des déploiements](#suivi-des-déploiements)) |
+| **Santé** | OS dont le support est terminé ou se termine bientôt, agents WAPT à mettre à jour, expiration du certificat de signature (voir [Santé du parc](#santé-du-parc)) |
 | **Paquets machine** | Dépendances à ajouter au paquet machine de chaque poste (groupes, paquets installés, logiciels hors WAPT), paquets machine absents du serveur (voir [`hosts`](hosts.md)) |
 
 Le rapport fait le lien avec `import` : chaque paquet proposé (onglets paquets manquants, à importer, mises à jour, liste d'import) a une case à cocher, et une barre en bas de page affiche la commande `uv run wapt-analyzer import …` correspondant à la sélection, regroupée par OS, prête à copier (avec ou sans `--apply`). Les paquets réservés aux abonnés ne sont pas sélectionnables.
@@ -103,6 +104,20 @@ alert_days = 3    # ancienneté signalée (et notifiée) à partir de 3 jours ; 
 ```
 
 ![Rapport de démonstration : onglet « Déploiements », paquets en erreur et mises à jour en attente par poste](images/report-deploy.png)
+
+## Santé du parc
+
+L'onglet **Santé** signale ce qui fragilise le parc indépendamment des paquets :
+
+| Vérification | Source |
+|---|---|
+| **Fin du support de l'OS** | Version de build remontée par l'agent, comparée aux dates du cycle de vie Microsoft (Windows 7 à 11, éditions Enterprise et Education comprises, Windows Server 2012 à 2025). Signalé si le support est terminé, ou se termine dans `[health] os_warn_days` jours (90 par défaut). Pour macOS, Apple ne publie pas de dates : les trois dernières versions majeures sont considérées comme maintenues (`[health] macos_min_version`, `15` par défaut) |
+| **Agent WAPT** | Version de l'agent du poste, comparée à celle que publie le serveur (`waptagent.exe`). La mise à jour passe par le paquet `waptupgrade` du dépôt |
+| **Certificat de signature** | Date d'expiration du certificat de `[signing] certificate`, signalée `[health] cert_warn_days` jours avant (30 par défaut) : expiré, il ne permet plus de signer ni paquets ni actions |
+
+Les mêmes informations sont exportées dans `health.csv`. [`report --notify`](scheduling.md) signale les postes qui passent hors support, les agents à mettre à jour et le certificat qui expire, une fois chacun. Les dates de fin de support sont celles connues en octobre 2026 : une nouvelle version de Windows apparaît comme « inconnue » jusqu'à la mise à jour de l'outil.
+
+![Rapport de démonstration : onglet « Santé », postes Windows hors support et agents à mettre à jour](images/report-health.png)
 
 ## Multi-OS (Windows, macOS, Linux)
 

@@ -59,6 +59,8 @@ key_password_file = "~/.config/wapt-analyzer/key-password"
 | `[groups]` | Comportement de `groups` et `hosts --groups` | `keep_missing`, `suggest_share`, `suggest_min_hosts`, `suggest_name`, `assign_share` |
 | `[cleanup]` | Comportement de `cleanup` | `keep`, `exclude`, `unused_min_age` |
 | `[deployments]` | Onglet « Déploiements » du rapport et son historique | `stale_days`, `history`, `alert_days` |
+| `[health]` | Onglet « Santé » du rapport | `os_warn_days`, `cert_warn_days`, `macos_min_version` |
+| `[autopilot]` | Garde-fous de `autopilot` | `updates`, `packages`, `max_updates`, `cleanup`, `upgrade`, `notify` |
 | `[report]` | Sorties du rapport | `output`, `json`, `csv_dir`, `language` |
 | `[cache]` | Cache local | `directory` |
 

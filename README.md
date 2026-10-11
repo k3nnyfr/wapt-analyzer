@@ -2,7 +2,7 @@
 
 <img src="docs/images/wapt-analyzer-logo-128.png" alt="wapt-analyzer logo" width="128">
 
-![release](https://img.shields.io/badge/release-v0.12.0-blue.svg)
+![release](https://img.shields.io/badge/release-v0.13.0-blue.svg)
 
 Outil en ligne de commande pour entretenir le dépôt de paquets d'un serveur [WAPT](https://www.wapt.fr). Il compare ce dépôt, le store public Tranquil IT et l'inventaire des postes, puis aide à combler les écarts.
 
@@ -14,13 +14,14 @@ Outil en ligne de commande pour entretenir le dépôt de paquets d'un serveur [W
 
 | Commande | Rôle | Écrit sur le serveur ? |
 |---|---|---|
-| [`report`](docs/report.md) | Analyse le parc et produit un rapport HTML : paquets manquants, logiciels installés hors WAPT, mises à jour disponibles, paquets groupe et machine à reconstruire, déploiements en erreur ou en attente | Non |
+| [`report`](docs/report.md) | Analyse le parc et produit un rapport HTML : paquets manquants, logiciels installés hors WAPT, mises à jour disponibles, paquets groupe et machine à reconstruire, déploiements en erreur ou en attente, santé du parc (OS hors support, agents) | Non |
 | [`import`](docs/import.md) | Importe des paquets du store (signature d'origine vérifiée, renommés à votre préfixe, signés avec **votre** clé) ou met à jour ceux du dépôt (`--update`) | Avec `--apply` |
 | [`upgrade`](docs/upgrade.md) | Demande aux postes connectés d'installer tout de suite leurs mises à jour en attente, après réveil éventuel (Wake-on-LAN) | Avec `--apply` |
 | [`cleanup`](docs/cleanup.md) | Supprime les anciennes versions qu'aucun poste ne peut plus installer, et avec `--unused` les paquets dont aucun poste n'a besoin | Avec `--apply` |
 | [`purge`](docs/cleanup.md#purger-les-fichiers-locaux) | Vide le dossier de travail local des paquets téléchargés et signés qui y restent | Non |
 | [`groups`](docs/groups.md) | Recrée les paquets groupe déployés mais disparus du dépôt, suggère un groupe « socle commun » par OS | Avec `--apply` |
 | [`hosts`](docs/hosts.md) | Recrée et complète le paquet machine de chaque poste (groupes, paquets installés), reprend en gestion les logiciels installés hors WAPT (`--adopt`) | Avec `--apply` |
+| [`autopilot`](docs/autopilot.md) | Entretien planifié (cron) : rapport, mises à jour du store, mise à jour des postes, nettoyage et récapitulatif, avec garde-fous | Avec `--apply` |
 | [`report --notify`](docs/scheduling.md) | Envoie le résumé du rapport par mail ou webhook, depuis cron ou un timer systemd | Non |
 
 Les commandes qui modifient le serveur fonctionnent **en simulation par défaut** : elles affichent leur plan et n'agissent qu'avec `--apply`. `import`, `groups` et `hosts` proposent aussi une liste à cocher dans le terminal (`-i`).
@@ -49,7 +50,7 @@ uv run wapt-analyzer hosts --adopt --fix-missing -i --apply          # 5. compl�
 ## Documentation
 
 - **Mise en route** : [installation](docs/installation.md), [configuration](docs/configuration.md), [authentification et secrets](docs/secrets.md) (mot de passe, TOTP, certificat client, clé de signature)
-- **Commandes** : [rapport](docs/report.md), [import et mises à jour](docs/import.md), [mise à jour des postes](docs/upgrade.md), [nettoyage du dépôt](docs/cleanup.md), [paquets groupe](docs/groups.md), [paquets machine](docs/hosts.md), [rapport planifié et notifications](docs/scheduling.md)
+- **Commandes** : [rapport](docs/report.md), [import et mises à jour](docs/import.md), [mise à jour des postes](docs/upgrade.md), [nettoyage du dépôt](docs/cleanup.md), [paquets groupe](docs/groups.md), [paquets machine](docs/hosts.md), [pilote automatique](docs/autopilot.md), [rapport planifié et notifications](docs/scheduling.md)
 - **Projet** : [développement](docs/development.md), [changelog](CHANGELOG.md), [roadmap](ROADMAP.md)
 
 Le sommaire complet est dans [docs/](docs/README.md).

@@ -79,5 +79,12 @@
 - [x] Onglet « Déploiements » : depuis quand un paquet est en attente ou en erreur, nouveaux problèmes, problèmes résolus
 - [x] Notifications sur les problèmes qui durent au-delà d'un seuil (`[deployments] alert_days`)
 
+## v0.13.0 — Santé du parc et pilote automatique
+- [x] Onglet « Santé » : OS dont le support est terminé ou se termine bientôt (cycle de vie Microsoft, trois dernières versions de macOS)
+- [x] Agents WAPT plus anciens que celui publié par le serveur
+- [x] Expiration du certificat de signature
+- [x] Commande `autopilot` : rapport, mises à jour du store, mise à jour des postes, nettoyage et récapitulatif en une exécution planifiée
+- [x] Garde-fous : liste blanche de paquets, nombre maximal de mises à jour par exécution, verrou contre les exécutions simultanées, simulation sans `--apply`
+
 ## Plus tard
 - [ ] Publication sur PyPI (`uvx wapt-analyzer`)

@@ -19,6 +19,7 @@ from wapt_analyzer.deploy import track_deployments
 from wapt_analyzer.fetch import Cache, fetch_cached
 from wapt_analyzer.grouppkg import add_to_report as add_groups_to_report
 from wapt_analyzer.grouppkg import plan_missing_groups, suggest_groups
+from wapt_analyzer.health import add_to_report as add_health_to_report
 from wapt_analyzer.hostpkg import add_to_report, plan_hosts
 from wapt_analyzer.packages import (
     PackageEntry,
@@ -189,6 +190,19 @@ def demo_history(states: list, rng: random.Random) -> dict:
     return {"since": since, "run_at": run_at, "resolved": resolved, "now": now}
 
 
+def add_versions(hosts: list[Host], rng: random.Random) -> None:
+    """OS builds and agent versions for the « Santé » tab: a few old Windows releases and agents."""
+    for host in hosts:
+        if host.os_family == "macos":
+            host.os_version = rng.choice(["26.7.1", "26.7.1", "15.7.4", "14.8"])
+        else:
+            build = rng.choice([26200, 26200, 26200, 26100, 22631, 19045])
+            host.os_version = f"10.0.{build}"
+            if build == 19045:
+                host.os_name = "Windows 10 Pro"
+        host.wapt_version = rng.choice(["2.7.0.19598", "2.7.0.19598", "2.7.0.19593", "2.6.1"])
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("-o", "--output", default="demo-report.html")
@@ -220,6 +234,8 @@ def main() -> None:
     add_deploy_states(hosts, random.Random(7))
     states = track_deployments(hosts)
     add_deployments_to_report(data, states, 7, alert_days=7, **demo_history(states, random.Random(3)))
+    add_versions(hosts, random.Random(5))
+    add_health_to_report(data, hosts, agent_version="2.7.0.19598")
     write_html(data, Path(args.output))
     print(f"Demo report: {args.output}")
 

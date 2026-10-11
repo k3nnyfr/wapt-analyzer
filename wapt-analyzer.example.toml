@@ -99,6 +99,19 @@ keep = 0                                    # previous versions kept in addition
 # history = true                            # keep the deployment history in <cache>/history.sqlite
 # alert_days = 7                            # report --notify: issues lasting 7 days or more (0: never)
 
+[health]
+# os_warn_days = 90                         # OS whose support ends within 90 days
+# cert_warn_days = 30                       # signer certificate expiring within 30 days
+# macos_min_version = "15"                  # oldest macOS still patched by Apple (the last three)
+
+[autopilot]                                 # `autopilot --apply` from cron: report, updates, upgrades, summary
+# updates = true                            # import the store updates of the repository packages
+# packages = ["firefox", "7zip"]            # only these packages (empty: all)
+# max_updates = 10                          # more at once: nothing imported, to review (0: no limit)
+# cleanup = true                            # remove the superseded versions
+# upgrade = "imported"                      # imported, pending (every host with pending installs) or none
+# notify = true                             # summary through [notify]
+
 [report]
 output = "wapt-report.html"
 # json = "wapt-report.json"

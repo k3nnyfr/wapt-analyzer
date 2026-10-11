@@ -187,6 +187,7 @@ footer { margin-top: 32px; color: var(--muted); font-size: 12px; }
   <button role="tab" data-tab="candidates">Liste d'import<span class="badge">{{ candidates | length }}</span></button>
   {% if data.groups is defined %}<button role="tab" data-tab="groups">Paquets groupe<span class="badge">{{ s.groups }}</span></button>{% endif %}
   {% if data.deployments is defined %}<button role="tab" data-tab="deploy">Déploiements<span class="badge">{{ s.deploy_hosts }}</span></button>{% endif %}
+  {% if data.health is defined %}<button role="tab" data-tab="health">Santé<span class="badge">{{ s.health_issues }}</span></button>{% endif %}
   {% if data.host_packages is defined %}<button role="tab" data-tab="hostpkgs">Paquets machine<span class="badge">{{ s.host_packages }}</span></button>{% endif %}
 </nav>
 
@@ -313,6 +314,30 @@ footer { margin-top: 32px; color: var(--muted); font-size: 12px; }
     </tbody>
   </table></div>
   {% endif %}
+</section>
+{% endif %}
+
+{% if data.health is defined %}
+{% set hl = data.health %}
+<section class="panel" id="health">
+  <h2>Santé du parc</h2>
+  <p class="intro">Systèmes d'exploitation dont le support est terminé ou se termine dans les {{ hl.os_warn_days }} jours (<code>[health] os_warn_days</code>, dates du cycle de vie Microsoft ; pour macOS, les trois dernières versions majeures, <code>[health] macos_min_version</code>), agents WAPT plus anciens que celui publié par le serveur ({{ hl.agent_reference or 'inconnu' }}), et expiration du certificat qui signe vos paquets et vos actions.</p>
+  {% if hl.certificate %}{% set c = hl.certificate %}
+  <p>Certificat de signature <code>{{ c.subject or c.path }}</code> : {% if c.status == 'ended' %}<span class="tag restricted">expiré le {{ c.not_after }}</span> — plus aucun paquet ni aucune action ne peut être signé.{% elif c.status == 'soon' %}<span class="tag restricted">expire dans {{ c.days }} j ({{ c.not_after }})</span> — à renouveler.{% else %}valide jusqu'au {{ c.not_after }} ({{ c.days }} j).{% endif %}</p>
+  {% endif %}
+  <div class="toolbar"><input type="search" placeholder="Filtrer…" data-filter="t-health"> <span class="muted count" data-count="t-health"></span></div>
+  <div class="scroll"><table id="t-health" class="sortable">
+    <thead><tr><th>OS</th><th>Poste</th><th>Système</th><th>Fin du support</th><th>Agent WAPT</th></tr></thead>
+    <tbody>
+    {% for h in hl.hosts %}
+      <tr data-os="{{ h.os }}">{{ os_cell(h.os) }}<td>{{ h.host }}</td>
+        <td>{{ h.release }}<div class="desc">{{ h.os_name }} {{ h.os_version }}</div></td>
+        <td data-sort="{{ h.days if h.days is not none else (-99999 if h.os_status == 'ended' else 99999) }}">{% if h.os_status == 'ended' %}<span class="tag restricted">terminé{% if h.end %} le {{ h.end }}{% endif %}</span>{% elif h.os_status == 'soon' %}<span class="tag restricted">dans {{ h.days }} j ({{ h.end }})</span>{% elif h.os_status == 'ok' %}{{ h.end or 'supporté' }}{% else %}<span class="muted">inconnue</span>{% endif %}</td>
+        <td>{% if h.agent_outdated %}<span class="bad">{{ h.agent }}</span> <span class="tag restricted">à mettre à jour</span>{% else %}{{ h.agent or '—' }}{% endif %}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% if s.health_agents_outdated %}<p class="intro">Mise à jour des agents : paquet <code>waptupgrade</code> du dépôt (<code>uv run wapt-analyzer import --update</code>), puis <code>uv run wapt-analyzer upgrade --packages waptupgrade --apply</code>.</p>{% endif %}
 </section>
 {% endif %}
 

@@ -18,7 +18,7 @@ from .packages import host_os_family
 log = logging.getLogger(__name__)
 
 HOST_COLUMNS = ["uuid", "computer_fqdn", "computer_name", "os_name", "os_version", "last_seen_on",
-                "reachable", "connected_users", "depends"]
+                "reachable", "connected_users", "depends", "wapt_version"]
 
 
 class WaptServerError(RuntimeError):
@@ -30,6 +30,8 @@ class Host:
     uuid: str
     name: str
     os_name: str = ""
+    os_version: str = ""
+    wapt_version: str = ""
     last_seen_on: str = ""
     installed_packages: list[dict] = field(default_factory=list)
     installed_softwares: list[dict] = field(default_factory=list)
@@ -167,6 +169,10 @@ class WaptServer:
     def host_data(self, uuid: str, field_name: str) -> list[dict]:
         return self._call("GET", "api/v3/host_data", params={"uuid": uuid, "field": field_name}) or []
 
+    def agent_version(self) -> str:
+        """Version of the WAPT agent published by the server (waptagent.exe), the reference for the hosts."""
+        return (self._call("GET", "api/v3/waptagent_version") or {}).get("waptagent_version") or ""
+
     def hosts_for_packages(self, packages: list[str]) -> set[str]:
         """uuids of the hosts on which one of these packages is installed or pending."""
         rows = self._call("POST", "api/v3/hosts_for_package",
@@ -188,6 +194,7 @@ class WaptServer:
             name = "".join((row.get("computer_fqdn") or row.get("computer_name") or row["uuid"]).split())
             depends = row.get("depends")
             host = Host(uuid=row["uuid"], name=name, os_name=(row.get("os_name") or "").strip(),
+                        os_version=row.get("os_version") or "", wapt_version=row.get("wapt_version") or "",
                         last_seen_on=row.get("last_seen_on") or "",
                         depends=[d.strip() for d in depends.split(",") if d.strip()] if isinstance(depends, str)
                         else depends if isinstance(depends, list) else None)

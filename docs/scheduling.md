@@ -6,7 +6,7 @@
 - **par mail** (SMTP), avec le rapport HTML en pièce jointe ;
 - **par webhook**, en JSON brut, au format Slack (compatible Mattermost, Rocket.Chat…) ou en carte Microsoft Teams (Workflows). On peut déclarer plusieurs webhooks.
 
-Le résumé reprend les compteurs du rapport, dont ceux des [déploiements](report.md#suivi-des-déploiements) (postes en erreur, installations en attente, postes muets), puis les **nouveautés depuis le dernier envoi** : erreurs de déploiement, problèmes de déploiement qui atteignent `[deployments] alert_days` jours (une seule fois, le jour où ils franchissent le seuil), mises à jour disponibles, paquets manquants, logiciels à importer (dix par rubrique au plus).
+Le résumé reprend les compteurs du rapport, dont ceux des [déploiements](report.md#suivi-des-déploiements) (postes en erreur, installations en attente, postes muets), puis les **nouveautés depuis le dernier envoi** : erreurs de déploiement, santé du parc (OS hors support, agents à mettre à jour, certificat qui expire), problèmes de déploiement qui atteignent `[deployments] alert_days` jours (une seule fois, le jour où ils franchissent le seuil), mises à jour disponibles, paquets manquants, logiciels à importer (dix par rubrique au plus).
 
 ```toml
 [notify]
@@ -29,7 +29,7 @@ Avec `when = "changes"`, le premier envoi a toujours lieu. Les suivants n'ont li
 
 Pour tester la configuration sans interroger le serveur : `uv run wapt-analyzer report --offline --notify`.
 
-Pour planifier le rapport, avec cron ou un timer systemd, voir [Planifier l'exécution](#planifier-lexécution). `-q` / `--quiet` supprime toute sortie hors erreurs, pour que cron n'envoie pas de mail à chaque exécution.
+Pour planifier le rapport, avec cron ou un timer systemd, voir [Planifier l'exécution](#planifier-lexécution). Pour aller plus loin et appliquer aussi les mises à jour, voir le [pilote automatique](autopilot.md). `-q` / `--quiet` supprime toute sortie hors erreurs, pour que cron n'envoie pas de mail à chaque exécution.
 
 | Option | Rôle |
 |---|---|

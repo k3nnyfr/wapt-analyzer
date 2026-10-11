@@ -151,6 +151,11 @@ def write_csv(data: dict, directory: Path) -> list[Path]:
          [[o["os"], o["kind"], o["local"]["package"], o["local"]["version"],
            o["store"]["package"], o["store"]["version"]]
           for o in data["outdated"]])
+    if "health" in data:
+        dump("health.csv", ["os", "host", "os_name", "os_version", "release", "end_of_support", "os_status",
+                            "wapt_version", "agent_outdated"],
+             [[h["os"], h["host"], h["os_name"], h["os_version"], h["release"], h["end"], h["os_status"], h["agent"],
+               h["agent_outdated"]] for h in data["health"]["hosts"]])
     if "deployments" in data:
         dump("deployments.csv", ["os", "host", "last_seen_on", "kind", "package", "installed", "version", "status",
                                  "date", "output", "since", "days"],

@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.13.0] - 2026-10-11
+
+### Added
+- **Onglet « Santé »** du rapport : postes dont l'OS n'est plus supporté ou ne le sera plus dans `[health] os_warn_days` jours (90 par défaut), d'après le build remonté par l'agent et le cycle de vie Microsoft (Windows 7 à 11, éditions Enterprise et Education, Windows Server 2012 à 2025) ; pour macOS, les trois dernières versions majeures (`[health] macos_min_version`). Export `health.csv`.
+- **Agents WAPT à mettre à jour** : version de l'agent de chaque poste comparée à celle publiée par le serveur (`api/v3/waptagent_version`).
+- **Expiration du certificat de signature** (`[signing] certificate`), signalée `[health] cert_warn_days` jours avant (30 par défaut).
+- **Notifications** : compteurs de santé, et rubrique « Santé du parc » dans les nouveautés (poste qui passe hors support, agent en retard, certificat qui expire, une fois chacun).
+- **Commande `autopilot`** : entretien planifié en une exécution — rapport et historique, mises à jour du store (`import --update`), nettoyage des versions remplacées, mise à jour des postes concernés, puis un seul récapitulatif par `[notify]`, l'action menée en tête. Simulation sans `--apply`, `--no-notify`.
+- **Garde-fous de l'autopilote** (`[autopilot]`) : liste blanche `packages`, `max_updates` au-delà duquel rien n'est importé, choix des postes relancés (`upgrade` : `imported`, `pending`, `none`), verrou contre les exécutions simultanées, code de sortie non nul en cas d'échec ou de blocage.
+- Pages `docs/autopilot.md` et section « Santé du parc » de `docs/report.md`, capture d'écran de l'onglet « Santé ».
+
+### Changed
+- L'inventaire des postes conserve la version de l'OS et de l'agent WAPT (`os_version`, `wapt_version`).
+
 ## [0.12.0] - 2026-10-11
 
 ### Added

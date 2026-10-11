@@ -20,6 +20,7 @@
 | [Nettoyer le dépôt](cleanup.md) | `cleanup`, `purge` | Suppression des versions qu'aucun poste ne peut plus installer et des paquets inutilisés, dépendances absentes, purge des paquets locaux |
 | [Paquets groupe](groups.md) | `groups` | Recréer les groupes déployés mais disparus du dépôt, suggérer un groupe « socle commun » par OS |
 | [Paquets machine](hosts.md) | `hosts` | Recréer et compléter les paquets machine, reprendre les logiciels installés hors WAPT |
+| [Pilote automatique](autopilot.md) | `autopilot` | Entretien planifié : rapport, mises à jour, postes, nettoyage, récapitulatif, garde-fous |
 | [Rapport planifié et notifications](scheduling.md) | `report --notify` | Envoi par mail et webhook, cron, timer systemd, WSL |
 
 ## Projet

@@ -28,6 +28,9 @@ COUNTS = [  # summary key, label
     ("deploy_pending_hosts", "postes avec des installations en attente"),
     ("stale_hosts", "postes muets depuis plusieurs jours"),
     ("deploy_lasting", "problèmes de déploiement qui durent"),
+    ("health_os_ended", "postes sur un OS qui n'est plus supporté"),
+    ("health_os_soon", "postes sur un OS bientôt plus supporté"),
+    ("health_agents_outdated", "agents WAPT à mettre à jour"),
 ]
 
 
@@ -57,16 +60,41 @@ def report_items(data: dict) -> dict[str, dict[str, str]]:
                            f"{i['host']} : {i['package']} {i['version']} "
                            f"({LASTING_KINDS.get(i['kind'], i['kind'])} depuis {i['days']} j)"
                            for i in data.get("deployments", {}).get("lasting", [])},
+        "health": health_items(data.get("health")),
     }
+
+
+def health_items(health: dict | None) -> dict[str, str]:
+    if not health:
+        return {}
+    items = {}
+    for h in health["hosts"]:
+        if h["os_status"] in ("ended", "soon"):
+            when = f"terminé le {h['end']}" if h["os_status"] == "ended" and h["end"] else (
+                "terminé" if h["os_status"] == "ended" else f"se termine le {h['end']}")
+            items[f"os|{h['uuid']}|{h['os_status']}|{h['release']}"] = f"{h['host']} : {h['release']}, support {when}"
+        if h["agent_outdated"]:
+            items[f"agent|{h['uuid']}|{health['agent_reference']}"] = (
+                f"{h['host']} : agent WAPT {h['agent']} (serveur : {health['agent_reference']})")
+    cert = health.get("certificate")
+    if cert and cert["status"] != "ok":
+        items[f"cert|{cert['not_after']}|{cert['status']}"] = (
+            f"certificat de signature {cert['subject']} : " + ("expiré" if cert["status"] == "ended" else "expire")
+            + f" le {cert['not_after']}")
+    return items
 
 
 ERROR_KINDS = {"error": "installation en erreur", "audit": "audit en erreur"}
 LASTING_KINDS = {**ERROR_KINDS, "install": "installation en attente", "upgrade": "mise à jour en attente",
                  "remove": "désinstallation en attente"}
 
+AUTOPILOT = "autopilot"
+
 CHANGE_LABELS = {
+    AUTOPILOT: "Pilote automatique",
     "deploy_errors": "Erreurs de déploiement",
     "deploy_lasting": "Problèmes de déploiement qui durent",
+    "health": "Santé du parc",
     "outdated": "Mises à jour",
     "missing_packages": "Paquets manquants",
     "software_to_import": "Logiciels à importer",
@@ -96,10 +124,13 @@ def title(data: dict) -> str:
 def summary_text(data: dict, changes: dict[str, list[str]], report_url: str = "", first_run: bool = False) -> str:
     sm = data["summary"]
     lines = [title(data), ""]
+    if changes.get(AUTOPILOT):
+        lines += ["Pilote automatique :", *[f"  {line}" for line in changes[AUTOPILOT]], ""]
     lines += [f"• {sm[key]} {label}" for key, label in COUNTS if key in sm]
-    if any(changes.values()) and not first_run:
+    news = {k: v for k, v in changes.items() if k != AUTOPILOT}
+    if any(news.values()) and not first_run:
         lines += ["", "Nouveautés depuis le dernier envoi :"]
-        for section, items in changes.items():
+        for section, items in news.items():
             if items:
                 lines += ["", f"{CHANGE_LABELS[section]} :", *_bullets(items, "  -")]
     if report_url:
@@ -157,7 +188,8 @@ def webhook_payload(fmt: str, data: dict, changes: dict[str, list[str]], text: s
         ]
         for section, items in changes.items():
             if items:
-                body.append({"type": "TextBlock", "text": f"**{CHANGE_LABELS[section]}** (nouveau)", "wrap": True,
+                suffix = "" if section == AUTOPILOT else " (nouveau)"
+                body.append({"type": "TextBlock", "text": f"**{CHANGE_LABELS[section]}**{suffix}", "wrap": True,
                              "spacing": "Medium"})
                 body.append({"type": "TextBlock", "text": "\n".join(_bullets(items, "-")), "wrap": True})
         card = {"type": "AdaptiveCard", "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
@@ -190,8 +222,12 @@ def send_webhook(hook: dict, data: dict, changes: dict[str, list[str]], text: st
     log.info("Report sent to webhook %s", name)
 
 
-def notify(cfg: dict, data: dict, cache: Cache, report_html: str | None) -> int:
-    """Send the summary to every configured destination; returns the number of failed destinations."""
+def notify(cfg: dict, data: dict, cache: Cache, report_html: str | None, autopilot: list[str] | None = None,
+           force: bool = False) -> int:
+    """Send the summary to every configured destination; returns the number of failed destinations.
+
+    ``autopilot``: what the autopilot did, shown first; ``force``: send even with ``when = "changes"`` and
+    nothing new (the autopilot acted)."""
     conf = cfg["notify"]
     mail, hooks = conf.get("email") or {}, conf.get("webhook") or []
     if isinstance(hooks, dict):
@@ -205,7 +241,10 @@ def notify(cfg: dict, data: dict, cache: Cache, report_html: str | None) -> int:
     current = report_items(data)
     state = cache.read_json(STATE_KEY)
     changes = new_items(state, current)
-    if when == "changes" and state is not None and not any(changes.values()):
+    if autopilot:
+        changes = {AUTOPILOT: autopilot, **changes}
+    if when == "changes" and state is not None and not force and not any(
+            v for k, v in changes.items() if k != AUTOPILOT):
         log.info("Nothing new since the last notification: nothing sent")
         return 0
 
